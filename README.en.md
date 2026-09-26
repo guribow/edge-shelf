@@ -30,6 +30,7 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
 - **Take out:** Drag an item from the shelf to where you want it. The item leaves the shelf.
 - The shelf shrinks to a thin tab when the mouse moves away. Point to the tab to open it again.
   Can't find a tab? Click the tray icon. The tabs light up.
+- You can have as many shelves as you like. Drag to an empty part of the edge to make a new one.
 - Right-click an item: Open, Quick Look, Show in Finder, Copy, Remove. Space opens Quick Look.
 - Command-click or Shift-click to select more than one item.
 - The trash button removes all items (original files are kept).
@@ -59,4 +60,4 @@ Requires Xcode (swiftc).
 
 ## License
 
-MIT ([LICENSE](LICENSE)). You may use, change and share it. Keep the copyright notice and the license text when you share it. No warranty.
+MIT ([LICENSE](LICENSE)). No warranty.
