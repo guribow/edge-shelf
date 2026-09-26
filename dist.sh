@@ -17,6 +17,7 @@ make_zip() {   # $1 = ja / en、$2 = 説明書のファイル名
     local ZIP=dist/EdgeShelf-$VERSION-$1.zip
     mkdir -p "$STAGE"
     ditto build/EdgeShelf.app "$STAGE/EdgeShelf.app"
+    codesign --force --sign - "$STAGE/EdgeShelf.app"   # 配るものは ad-hoc にする（証明書の本名を外に出さない）
     cp "dist/$2" "$STAGE/"
     cp LICENSE "$STAGE/"   # MIT ライセンスは、配るときにライセンスの文章を添えることを求めている
     # zip コマンドは署名を壊すことがあるので ditto で固める
