@@ -49,6 +49,7 @@ More:
   Dragging a file from the shelf to Finder moves it (on the same disk),
   just like dragging it in Finder.
 - After you install a new version, repeat steps 3-5 of "Install".
+- The app sends no data anywhere.
 
 
 == Uninstall ==
@@ -59,4 +60,5 @@ More:
    enter ~/Library/Application Support/EdgeShelf and move that folder to the Trash.
 
 
-Questions or problems? Please tell the person who gave you this app.
+License: MIT (see LICENSE). No warranty.
+Questions or problems: https://github.com/guribow/edge-shelf/issues
