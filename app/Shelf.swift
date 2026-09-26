@@ -722,7 +722,7 @@ final class ExpandedView: NSView {
     private let clearButton = NSButton()
     private let scroll = NSScrollView()
     private let list = SelectionListView()
-    private let emptyLabel = NSTextField(labelWithString: "ここにドロップ\n⌘V で貼り付け")
+    private let emptyLabel = NSTextField(labelWithString: L("ここにドロップ\n⌘V で貼り付け"))
     static let columns = 2
     static let minTileHeight: CGFloat = 150
     static let headerHeight: CGFloat = 32
@@ -756,7 +756,7 @@ final class ExpandedView: NSView {
         addSubview(header)
 
         handle.image = symbol("square.stack.3d.up.fill", size: 15)
-        handle.toolTip = "ドラッグすると、棚のものをまとめて運べる"
+        handle.toolTip = L("ドラッグすると、棚のものをまとめて運べる")
         header.addSubview(handle)
 
         countLabel.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -765,7 +765,7 @@ final class ExpandedView: NSView {
 
         menuButton.bezelStyle = .inline
         menuButton.isBordered = false
-        menuButton.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "メニュー")
+        menuButton.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: L("メニュー"))
         menuButton.target = self
         menuButton.action = #selector(showMenu(_:))
         menuButton.autoresizingMask = [.minXMargin]
@@ -773,8 +773,8 @@ final class ExpandedView: NSView {
 
         clearButton.bezelStyle = .inline
         clearButton.isBordered = false
-        clearButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "すべて取り除く")
-        clearButton.toolTip = "棚のものをすべて取り除く（元のファイルは消えない）"
+        clearButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: L("すべて取り除く"))
+        clearButton.toolTip = L("棚のものをすべて取り除く（元のファイルは消えない）")
         clearButton.target = self
         clearButton.action = #selector(clearAll)
         header.addSubview(clearButton)
@@ -831,7 +831,7 @@ final class ExpandedView: NSView {
     private func updateCount() {
         guard let shelf else { return }
         let n = shelf.data.items.count, m = shelf.selected.count
-        countLabel.stringValue = m > 1 ? "\(n) 件（\(m) 件選択）" : "\(n) 件"
+        countLabel.stringValue = m > 1 ? String(format: L("%d 件（%d 件選択）"), n, m) : String(format: L("%d 件"), n)
     }
 
     /// 行を作り直さずに選択の表示だけ変える（ドラッグ中の行を消さないため）
@@ -869,12 +869,12 @@ final class ExpandedView: NSView {
     @objc private func showMenu(_ sender: NSButton) {
         guard let shelf else { return }
         let menu = NSMenu()
-        menu.addItem(MenuAction("クリップボードから貼り付け") { shelf.paste() })
-        let copyAll = MenuAction("すべてコピー") { shelf.copy(shelf.data.items) }
+        menu.addItem(MenuAction(L("クリップボードから貼り付け")) { shelf.paste() })
+        let copyAll = MenuAction(L("すべてコピー")) { shelf.copy(shelf.data.items) }
         copyAll.isEnabled = !shelf.data.items.isEmpty
         menu.addItem(copyAll)
         menu.addItem(.separator())
-        let clear = MenuAction("すべて取り除いて棚を閉じる") {
+        let clear = MenuAction(L("すべて取り除いて棚を閉じる")) {
             shelf.remove(shelf.data.items.map(\.id), discard: true)
             shelf.collapse()
         }
@@ -1025,7 +1025,7 @@ final class ItemRowView: DragSourceView {
         label.textColor = item.missing ? .tertiaryLabelColor : .labelColor
         label.autoresizingMask = [.width]
         addSubview(label)
-        toolTip = item.missing ? "見つかりません：\(item.entries.first?.path ?? "")"
+        toolTip = item.missing ? String(format: L("見つかりません：%@"), item.entries.first?.path ?? "")
                                : item.entries.map { $0.fileURL?.path ?? $0.text ?? "" }.joined(separator: "\n")
         loadIcon()
     }
@@ -1157,22 +1157,22 @@ final class ItemRowView: DragSourceView {
         let menu = NSMenu()
         menu.autoenablesItems = false
         let hasFile = items.contains { !$0.fileURLs.isEmpty }
-        let open = MenuAction("開く") { shelf.open(items) }
+        let open = MenuAction(L("開く")) { shelf.open(items) }
         open.isEnabled = hasFile || items.flatMap(\.entries).contains { $0.kind == .link }
         menu.addItem(open)
-        let preview = MenuAction("プレビュー") { shelf.togglePreview() }
+        let preview = MenuAction(L("プレビュー")) { shelf.togglePreview() }
         preview.isEnabled = hasFile
         menu.addItem(preview)
-        let reveal = MenuAction("Finder で表示") { shelf.reveal(items) }
+        let reveal = MenuAction(L("Finder で表示")) { shelf.reveal(items) }
         reveal.isEnabled = hasFile
         menu.addItem(reveal)
-        menu.addItem(MenuAction("コピー") { shelf.copy(items) })
+        menu.addItem(MenuAction(L("コピー")) { shelf.copy(items) })
         if items.count == 1, items[0].entries.count > 1 {
-            menu.addItem(MenuAction("ばらす") { shelf.split(items[0].id) })
+            menu.addItem(MenuAction(L("ばらす")) { shelf.split(items[0].id) })
         }
         menu.addItem(.separator())
         let ids = items.map(\.id)
-        menu.addItem(MenuAction(items.count > 1 ? "\(items.count) 件を取り除く" : "取り除く") {
+        menu.addItem(MenuAction(items.count > 1 ? String(format: L("%d 件を取り除く"), items.count) : L("取り除く")) {
             shelf.remove(ids, discard: true)
         })
         return menu

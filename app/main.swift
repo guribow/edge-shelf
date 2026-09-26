@@ -229,7 +229,7 @@ final class ServiceProvider: NSObject {
     @objc func sendToShelf(_ pboard: NSPasteboard, userData: String?,
                            error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         if !manager.receiveFromService(pboard) {
-            error.pointee = "EdgeShelf に置けるものがありませんでした" as NSString
+            error.pointee = L("EdgeShelf に置けるものがありませんでした") as NSString
         }
     }
 }
@@ -257,7 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIcon() {
         let full = manager.hasItems
         let image = NSImage(systemSymbolName: full ? "tray.full.fill" : "tray",
-                            accessibilityDescription: full ? "EdgeShelf（棚にものがあります）" : "EdgeShelf")
+                            accessibilityDescription: full ? L("EdgeShelf（棚にものがあります）") : "EdgeShelf")
         image?.isTemplate = true
         statusItem.button?.image = image
     }
@@ -269,51 +269,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
-        menu.addItem(MenuAction("EdgeShelf について") { [weak self] in self?.showAbout() })
+        menu.addItem(MenuAction(L("EdgeShelf について")) { [weak self] in self?.showAbout() })
         menu.addItem(.separator())
         let shelves = manager.shelves.filter { !$0.data.items.isEmpty }
         if shelves.isEmpty {
-            let none = NSMenuItem(title: "棚はありません（ものを画面の端へドラッグ）", action: nil, keyEquivalent: "")
+            let none = NSMenuItem(title: L("棚はありません（ものを画面の端へドラッグ）"), action: nil, keyEquivalent: "")
             none.isEnabled = false
             menu.addItem(none)
         }
         for s in shelves {
-            let side = s.data.edge == .right ? "右" : "左"
-            let multi = NSScreen.screens.count > 1 ? "\(s.screen.localizedName)・" : ""
-            menu.addItem(MenuAction("\(multi)\(side)の棚：\(s.data.items.count) 件") { s.expand(hold: 3) })
+            let side = String(format: L(s.data.edge == .right ? "右の棚：%d 件" : "左の棚：%d 件"), s.data.items.count)
+            let multi = NSScreen.screens.count > 1 ? String(format: L("%@・"), s.screen.localizedName) : ""
+            menu.addItem(MenuAction(multi + side) { s.expand(hold: 3) })
         }
         if shelves.count > 1 {
-            menu.addItem(MenuAction("すべての棚を空にする…") { [weak self] in self?.confirmClearAll() })
+            menu.addItem(MenuAction(L("すべての棚を空にする…")) { [weak self] in self?.confirmClearAll() })
         }
         menu.addItem(.separator())
-        menu.addItem(MenuAction("クリップボードを新しい棚に置く") { [manager] in manager!.pasteToNewShelf() })
+        menu.addItem(MenuAction(L("クリップボードを新しい棚に置く")) { [manager] in manager!.pasteToNewShelf() })
         menu.addItem(.separator())
         menu.addItem(delayMenu())
-        menu.addItem(MenuAction("つまみの色…") { [weak self] in self?.showColorPanel(.tab) })
-        menu.addItem(MenuAction("点滅の色…") { [weak self] in self?.showColorPanel(.glow) })
+        menu.addItem(MenuAction(L("つまみの色…")) { [weak self] in self?.showColorPanel(.tab) })
+        menu.addItem(MenuAction(L("点滅の色…")) { [weak self] in self?.showColorPanel(.glow) })
         if Settings.tabColor != nil || Settings.glowColor != nil {
-            menu.addItem(MenuAction("色を標準に戻す") { [weak self] in
+            menu.addItem(MenuAction(L("色を標準に戻す")) { [weak self] in
                 Settings.tabColor = nil
                 Settings.glowColor = nil
                 self?.manager.shelves.forEach { $0.redrawTab() }
             })
         }
-        let login = NSMenuItem(title: "ログイン時に起動", action: #selector(toggleLoginItem), keyEquivalent: "")
+        let login = NSMenuItem(title: L("ログイン時に起動"), action: #selector(toggleLoginItem), keyEquivalent: "")
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
-        menu.addItem(NSMenuItem(title: "終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        menu.addItem(NSMenuItem(title: L("終了"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
     private func confirmClearAll() {
         let shelves = manager.shelves.filter { !$0.data.items.isEmpty }
         let total = shelves.reduce(0) { $0 + $1.data.items.count }
         let alert = NSAlert()
-        alert.messageText = "すべての棚を空にしますか？"
-        alert.informativeText = "\(shelves.count) つの棚にある \(total) 件をすべて取り除きます。元のファイルは消えませんが、写真や Web の画像から作ったファイルは消えます。"
+        alert.messageText = L("すべての棚を空にしますか？")
+        alert.informativeText = String(format: L("%1$d つの棚にある %2$d 件をすべて取り除きます。元のファイルは消えませんが、写真や Web の画像から作ったファイルは消えます。"), shelves.count, total)
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "空にする")
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: L("空にする"))
+        alert.addButton(withTitle: L("キャンセル"))
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         manager.clearAll()
@@ -333,10 +333,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         switch target {
         case .tab:
             panel.color = Settings.tabColor ?? .windowBackgroundColor
-            panel.title = "つまみの色"
+            panel.title = L("つまみの色")
         case .glow:
             panel.color = Settings.glowColor ?? .controlAccentColor
-            panel.title = "点滅の色"
+            panel.title = L("点滅の色")
         }
         panel.setTarget(self)
         panel.setAction(#selector(colorChanged(_:)))
@@ -368,7 +368,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// 端で開くまでの時間（ms）
     private func delayMenu() -> NSMenuItem {
         let cur = Settings.openDelayMs
-        let item = NSMenuItem(title: "端で開くまでの時間：\(cur) ms", action: nil, keyEquivalent: "")
+        let item = NSMenuItem(title: String(format: L("端で開くまでの時間：%d ms"), cur), action: nil, keyEquivalent: "")
         let sub = NSMenu()
         let presets = [0, 50, 100, 150, 200, 300, 500, 800, 1000]
         for ms in presets {
@@ -377,7 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             sub.addItem(i)
         }
         sub.addItem(.separator())
-        let custom = MenuAction(presets.contains(cur) ? "カスタム…" : "カスタム…（\(cur) ms）") { [weak self] in
+        let custom = MenuAction(presets.contains(cur) ? L("カスタム…") : String(format: L("カスタム…（%d ms）"), cur)) { [weak self] in
             self?.askDelay()
         }
         custom.state = presets.contains(cur) ? .off : .on
@@ -388,13 +388,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func askDelay() {
         let alert = NSAlert()
-        alert.messageText = "端で開くまでの時間"
-        alert.informativeText = "ドラッグが画面の端に来てから棚が開き始めるまでの時間を、ミリ秒（0〜5000）で入力してください。"
+        alert.messageText = L("端で開くまでの時間")
+        alert.informativeText = L("ドラッグが画面の端に来てから棚が開き始めるまでの時間を、ミリ秒（0〜5000）で入力してください。")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         field.stringValue = "\(Settings.openDelayMs)"
         alert.accessoryView = field
         alert.addButton(withTitle: "OK")
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: L("キャンセル"))
         alert.window.initialFirstResponder = field
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }

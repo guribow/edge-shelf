@@ -9,6 +9,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp app/Info.plist "$APP/Contents/"
 [ -f icon/AppIcon.icns ] && cp icon/AppIcon.icns "$APP/Contents/Resources/"
+cp -R app/ja.lproj app/en.lproj "$APP/Contents/Resources/"   # 日本語・英語の文字列（Mac の言語設定で自動で切り替わる）
 # macOS 13 以降で動く、Apple シリコンと Intel の両方に対応したユニバーサル形式にする
 MIN_OS=13.0
 for ARCH in arm64 x86_64; do

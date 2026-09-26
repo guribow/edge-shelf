@@ -3,6 +3,9 @@ import AppKit
 
 enum Edge: String, Codable { case left, right }
 
+/// 画面に出す文字列。日本語をキーにし、英語は en.lproj/Localizable.strings で訳す（Mac の言語設定で自動で切り替わる）
+func L(_ ja: String) -> String { NSLocalizedString(ja, comment: "") }
+
 /// 棚に置いた 1 つのもの（ファイル・テキスト・リンク）
 struct Entry: Codable {
     enum Kind: String, Codable { case file, text, link }
@@ -39,7 +42,7 @@ struct Entry: Codable {
         case .text:
             let line = (text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 .components(separatedBy: .newlines).first ?? ""
-            return line.isEmpty ? "テキスト" : line
+            return line.isEmpty ? L("テキスト") : line
         case .link:
             return text ?? ""
         }
@@ -67,7 +70,7 @@ struct ShelfItem: Codable {
     var id = UUID()
     var entries: [Entry]
 
-    var title: String { entries.count == 1 ? entries[0].title : "\(entries.count) 項目" }
+    var title: String { entries.count == 1 ? entries[0].title : String(format: L("%d 項目"), entries.count) }
     var fileURLs: [URL] { entries.compactMap(\.fileURL) }
     var missing: Bool { entries.allSatisfy { $0.kind == .file && $0.fileURL == nil } }
 }
@@ -213,7 +216,7 @@ enum DropReader {
         if base.isEmpty || base == "/" {
             let f = DateFormatter()
             f.dateFormat = "yyyyMMdd-HHmmss"
-            base = "画像 " + f.string(from: Date())
+            base = L("画像") + " " + f.string(from: Date())
         }
         let url = Store.newFolder().appendingPathComponent(base).appendingPathExtension(ext)
         do { try data.write(to: url) } catch { return nil }
