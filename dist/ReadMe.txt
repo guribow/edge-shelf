@@ -33,7 +33,10 @@ To start EdgeShelf when you log in, click the tray icon and choose "Open at Logi
   Can't find a tab? Click the tray icon. The tabs light up.
 
 More:
+- Under each item's name: pixel size and file size for images,
+  number of characters for text
 - Right-click an item: Open, Quick Look, Show in Finder, Copy, Remove
+- Right-click an image > "Convert to JPEG" (the original file is kept)
 - Space: Quick Look
 - Command-click / Shift-click: select more than one item
 - Command-V: paste from the clipboard
@@ -45,6 +48,9 @@ More:
 
 == Notes ==
 
+- Photos from the Photos app keep their original names and full size
+  (edited photos are saved as edited). The first time, macOS asks
+  if EdgeShelf can access your photos. Click "Allow".
 - Files on the shelf are links to the original files. They are not copies.
   Dragging a file from the shelf to Finder moves it (on the same disk),
   just like dragging it in Finder.

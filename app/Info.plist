@@ -29,6 +29,8 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 guribow</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>写真アプリからドラッグした写真を、元のファイル名とフルサイズで棚に置くために使います。</string>
 	<key>NSServices</key>
 	<array>
 		<dict>

@@ -31,7 +31,10 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
 - The shelf shrinks to a thin tab when the mouse moves away. Point to the tab to open it again.
   Can't find a tab? Click the tray icon. The tabs light up.
 - You can have as many shelves as you like. Drag to an empty part of the edge to make a new one.
+- Under each item's name: pixel size and file size for images, number of characters for text.
 - Right-click an item: Open, Quick Look, Show in Finder, Copy, Remove. Space opens Quick Look.
+- Right-click an image > "Convert to JPEG" to replace it on the shelf with a JPEG.
+  The original file is kept. The date, location and other photo info are kept too.
 - Command-click or Shift-click to select more than one item.
 - The trash button removes all items (original files are kept).
 - Tray icon menu: tab color, highlight color, open delay, Open at Login, About EdgeShelf.
@@ -40,7 +43,9 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
 
 - Files on the shelf are links to the original files, not copies.
   Dragging a file from the shelf to Finder moves it (on the same disk), just like dragging it in Finder.
-- Images from Photos or web pages are saved as files in `~/Library/Application Support/EdgeShelf`.
+- Photos from the Photos app keep their original names and full size. Edited photos are saved as edited.
+  The first time, macOS asks if EdgeShelf can access your photos.
+- Photos and images from web pages are saved as files in `~/Library/Application Support/EdgeShelf`.
 - Privacy: the app sends no data anywhere.
 
 ## Uninstall

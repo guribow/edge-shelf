@@ -148,7 +148,7 @@ final class Shelf {
     @discardableResult
     func accept(_ pb: NSPasteboard) -> Bool {
         var itemID: UUID?
-        return DropReader.read(pb) { [weak self] entries in
+        let accepted = DropReader.read(pb) { [weak self] entries in
             guard let self else { return }
             self.isTemp = false
             self.manager.lastUsed = self
@@ -161,6 +161,9 @@ final class Shelf {
             }
             self.changed()
         }
+        // 写真の書き出しなどは後から届くので、受け付けた時点で仮の棚ではなくする（空のままなら縮んだときに消える）
+        if accepted { isTemp = false }
+        return accepted
     }
 
     func insert(_ items: [ShelfItem]) {
@@ -194,6 +197,30 @@ final class Shelf {
         data.items.removeAll { $0.entries.isEmpty }
         changed()
         if isPreviewing { QLPreviewPanel.shared().reloadData() }
+    }
+
+    /// 選んだ項目の画像を JPEG に変換し、棚の中身を置き換える。
+    /// 元のファイルは消さない（写真アプリから取り込んだものなど、このアプリが作ったファイルだけ消す）
+    func convertToJPEG(_ ids: [UUID]) {
+        let targets = data.items.filter { ids.contains($0.id) }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            for item in targets {
+                for (n, e) in item.entries.enumerated() {
+                    guard let url = e.fileURL, JPEGConvert.canConvert(url), let jpeg = JPEGConvert.convert(url) else { continue }
+                    DispatchQueue.main.async {
+                        guard let self, let i = self.index(item.id), n < self.data.items[i].entries.count,
+                              self.data.items[i].entries[n].path == e.path else {
+                            try? FileManager.default.removeItem(at: jpeg.deletingLastPathComponent())
+                            return
+                        }
+                        self.data.items[i].entries[n] = .file(jpeg, owned: true)
+                        Store.discard(ShelfItem(entries: [e]))
+                        self.changed()
+                        if self.isPreviewing { QLPreviewPanel.shared().reloadData() }
+                    }
+                }
+            }
+        }
     }
 
     /// まとめた項目を 1 つずつに分ける
@@ -1007,7 +1034,9 @@ final class ItemRowView: DragSourceView {
     let item: ShelfItem
     var isSelected = false { didSet { needsDisplay = true } }
     private let label = NSTextField(wrappingLabelWithString: "")
+    private let infoLabel = NSTextField(labelWithString: "")   // 縦横のピクセル数・サイズ・文字数
     private static var thumbs: [String: NSImage] = [:]
+    private static var infos: [String: String] = [:]
 
     init(item: ShelfItem, shelf: Shelf) {
         self.item = item
@@ -1025,6 +1054,14 @@ final class ItemRowView: DragSourceView {
         label.textColor = item.missing ? .tertiaryLabelColor : .labelColor
         label.autoresizingMask = [.width]
         addSubview(label)
+        infoLabel.stringValue = item.missing ? "" : Self.info(for: item)
+        infoLabel.font = .systemFont(ofSize: 10)
+        infoLabel.textColor = .secondaryLabelColor
+        infoLabel.alignment = .center
+        infoLabel.lineBreakMode = .byTruncatingMiddle
+        infoLabel.maximumNumberOfLines = 2
+        infoLabel.isHidden = infoLabel.stringValue.isEmpty
+        addSubview(infoLabel)
         toolTip = item.missing ? String(format: L("見つかりません：%@"), item.entries.first?.path ?? "")
                                : item.entries.map { $0.fileURL?.path ?? $0.text ?? "" }.joined(separator: "\n")
         loadIcon()
@@ -1036,14 +1073,30 @@ final class ItemRowView: DragSourceView {
     override func layout() {
         super.layout()
         let r = iconRect()
-        label.frame = NSRect(x: 6, y: r.maxY + 6, width: bounds.width - 12, height: bounds.height - r.maxY - 10)
+        let infoH = infoHeight
+        label.frame = NSRect(x: 6, y: r.maxY + 6, width: bounds.width - 12, height: bounds.height - r.maxY - 10 - infoH)
+        infoLabel.frame = NSRect(x: 6, y: label.frame.maxY, width: bounds.width - 12, height: infoH)
+    }
+
+    /// 画像は縦横とサイズの 2 行
+    private var infoHeight: CGFloat {
+        infoLabel.isHidden ? 0 : CGFloat(infoLabel.stringValue.split(separator: "\n").count) * 13 + 2
+    }
+
+    /// 同じファイルを何度も読まないように覚えておく（中身が置き換わるとキーも変わる）
+    private static func info(for item: ShelfItem) -> String {
+        let key = item.entries.map { $0.path ?? "\($0.text?.count ?? 0)" }.joined(separator: "|")
+        if let s = infos[key] { return s }
+        let s = ItemInfo.text(for: item)
+        infos[key] = s
+        return s
     }
 
     /// 幅 width のとき、キャプションを全部表示するのに要る高さ
     func neededHeight(width: CGFloat) -> CGFloat {
         let labelW = width - 12
         let h = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: labelW, height: 10_000)).height ?? 16
-        return 8 + Self.iconSize + 6 + ceil(h) + 10
+        return 8 + Self.iconSize + 6 + ceil(h) + infoHeight + 10
     }
 
     static let iconSize: CGFloat = 100
@@ -1167,6 +1220,9 @@ final class ItemRowView: DragSourceView {
         reveal.isEnabled = hasFile
         menu.addItem(reveal)
         menu.addItem(MenuAction(L("コピー")) { shelf.copy(items) })
+        if items.flatMap(\.fileURLs).contains(where: JPEGConvert.canConvert) {
+            menu.addItem(MenuAction(L("JPEG に変換")) { shelf.convertToJPEG(items.map(\.id)) })
+        }
         if items.count == 1, items[0].entries.count > 1 {
             menu.addItem(MenuAction(L("ばらす")) { shelf.split(items[0].id) })
         }

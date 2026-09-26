@@ -46,3 +46,6 @@
 "カスタム…（%d ms）" = "Custom… (%d ms)";
 "端で開くまでの時間" = "Open Delay";
 "ドラッグが画面の端に来てから棚が開き始めるまでの時間を、ミリ秒（0〜5000）で入力してください。" = "Time before the shelf opens at the screen edge, in milliseconds (0–5000).";
+"合計 %@" = "Total: %@";
+"%d 文字" = "Characters: %d";
+"JPEG に変換" = "Convert to JPEG";

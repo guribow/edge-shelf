@@ -1,5 +1,7 @@
 // 棚と項目のデータ、保存、ドロップ（貼り付け）の読み取り
 import AppKit
+import Photos
+import UniformTypeIdentifiers
 
 enum Edge: String, Codable { case left, right }
 
@@ -157,10 +159,13 @@ enum DropReader {
     /// 読み取れたら true。写真アプリなどの「約束ファイル」は後から届くので、届くたびに add が呼ばれる
     @discardableResult
     static func read(_ pb: NSPasteboard, add: @escaping ([Entry]) -> Void) -> Bool {
-        // 1. ファイル
+        // 1. ファイル。写真アプリは、ライブラリの中のファイル（名前が UUID、編集前の元のもの）をそのまま渡してくる。
+        //    参照で置くと、棚から Finder へ出したときにライブラリから抜き取ってしまうので、写真アプリから書き出して置く
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
-            add(urls.map { .file($0) })
+            let (photos, files) = (urls.filter(PhotosImport.isInLibrary), urls.filter { !PhotosImport.isInLibrary($0) })
+            if !files.isEmpty { add(files.map { .file($0) }) }
+            if !photos.isEmpty { PhotosImport.receive(photos, add) }
             return true
         }
         let promises = (pb.readObjects(forClasses: [NSFilePromiseReceiver.self]) as? [NSFilePromiseReceiver]) ?? []
@@ -221,5 +226,169 @@ enum DropReader {
         let url = Store.newFolder().appendingPathComponent(base).appendingPathExtension(ext)
         do { try data.write(to: url) } catch { return nil }
         return .file(url, owned: true)
+    }
+}
+
+/// 写真アプリのライブラリの中のファイルを、写真アプリ（PhotoKit）から書き出して受け取る
+enum PhotosImport {
+    static func isInLibrary(_ url: URL) -> Bool {
+        url.pathComponents.contains { $0.hasSuffix(".photoslibrary") }
+    }
+
+    /// ライブラリの中のファイル名は「<UUID>.拡張子」や「<UUID>_1_201_a.jpeg」。先頭の UUID が写真の ID になる
+    private static func assetID(_ url: URL) -> String? {
+        let name = url.deletingPathExtension().lastPathComponent
+        guard name.count >= 36, UUID(uuidString: String(name.prefix(36))) != nil else { return nil }
+        return String(name.prefix(36)) + "/L0/001"
+    }
+
+    static func receive(_ urls: [URL], _ add: @escaping ([Entry]) -> Void) {
+        PHPhotoLibrary.requestAuthorization(for: .readWrite) { status in
+            let allowed = status == .authorized || status == .limited
+            for url in urls {
+                guard allowed, let id = assetID(url),
+                      let asset = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil).firstObject
+                else { copy(url, add); continue }
+                export(asset) { exported in
+                    guard let exported else { copy(url, add); return }
+                    DispatchQueue.main.async { add([.file(exported, owned: true)]) }
+                }
+            }
+        }
+    }
+
+    /// 写真へのアクセスを許可されていないときは、ライブラリのファイルをそのままコピーして置く（名前は UUID のまま）
+    private static func copy(_ url: URL, _ add: @escaping ([Entry]) -> Void) {
+        let dest = Store.newFolder().appendingPathComponent(url.lastPathComponent)
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+            DispatchQueue.main.async { add([.file(dest, owned: true)]) }
+        } catch {
+            NSLog("EdgeShelf: 写真を受け取れなかった: \(error.localizedDescription)")
+            removeFolder(of: dest)
+        }
+    }
+
+    /// 今の見た目（編集してあれば編集後）を、元のファイル名・フルサイズで書き出す。iCloud にしかなければダウンロードする
+    private static func export(_ asset: PHAsset, done: @escaping (URL?) -> Void) {
+        let resources = PHAssetResource.assetResources(for: asset)
+        let isVideo = asset.mediaType == .video
+        let original = resources.first { $0.type == (isVideo ? .video : .photo) }
+        let current = resources.first { $0.type == (isVideo ? .fullSizeVideo : .fullSizePhoto) } ?? original
+        guard let original, let current else { done(nil); return }
+        let base = (original.originalFilename as NSString).deletingPathExtension
+        let ext = (current.originalFilename as NSString).pathExtension
+        let dest = Store.newFolder().appendingPathComponent(base).appendingPathExtension(ext)
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        PHAssetResourceManager.default().writeData(for: current, toFile: dest, options: options) { error in
+            if let error {
+                NSLog("EdgeShelf: 写真の書き出しに失敗: \(error.localizedDescription)")
+                removeFolder(of: dest)
+                done(nil)
+            } else {
+                done(dest)
+            }
+        }
+    }
+
+    private static func removeFolder(of file: URL) {
+        try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+    }
+}
+
+/// タイルの名前の下に出す情報（画像は縦横のピクセル数とサイズ、ファイルはサイズ、テキストは文字数）
+enum ItemInfo {
+    private static let bytes: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.countStyle = .file
+        return f
+    }()
+
+    /// 画像はファイルの先頭（ヘッダー）だけを読むので軽い
+    static func text(for item: ShelfItem) -> String {
+        if item.entries.count > 1 {
+            let urls = item.fileURLs
+            guard urls.count == item.entries.count, let total = totalSize(urls) else { return "" }
+            return String(format: L("合計 %@"), bytes.string(fromByteCount: total))
+        }
+        let e = item.entries[0]
+        switch e.kind {
+        case .text: return String(format: L("%d 文字"), (e.text ?? "").count)
+        case .link: return ""
+        case .file:
+            guard let url = e.fileURL, let size = fileSize(url) else { return "" }
+            let s = bytes.string(fromByteCount: size)
+            if let (w, h) = pixelSize(url) { return "\(w) × \(h)\n\(s)" }   // 1 行だとタイルの幅に収まらない
+            return s
+        }
+    }
+
+    /// フォルダやアプリは中身を数えないので nil
+    private static func fileSize(_ url: URL) -> Int64? {
+        guard let v = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              v.isRegularFile == true, let s = v.fileSize else { return nil }
+        return Int64(s)
+    }
+
+    private static func totalSize(_ urls: [URL]) -> Int64? {
+        var total: Int64 = 0
+        for u in urls { guard let s = fileSize(u) else { return nil }; total += s }
+        return total
+    }
+
+    /// 画像の縦横。写真の向き（回転）を反映する
+    private static func pixelSize(_ url: URL) -> (Int, Int)? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let w = p[kCGImagePropertyPixelWidth] as? Int, let h = p[kCGImagePropertyPixelHeight] as? Int
+        else { return nil }
+        let o = p[kCGImagePropertyOrientation] as? Int ?? 1
+        return (5...8).contains(o) ? (h, w) : (w, h)
+    }
+}
+
+/// 画像を JPEG に変換する。撮影日時や位置情報などの Exif はそのまま残す
+enum JPEGConvert {
+    static func canConvert(_ url: URL) -> Bool {
+        guard let type = (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType else { return false }
+        return type.conforms(to: .image) && !type.conforms(to: .jpeg)
+            && CGImageSourceCreateWithURL(url as CFURL, nil).map { CGImageSourceGetCount($0) > 0 } == true
+    }
+
+    /// 変換したファイル（Files/<UUID>/元の名前.jpg）。読めない画像なら nil
+    static func convert(_ url: URL) -> URL? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil),
+              var image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        let props = (CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]) ?? [:]
+        if hasAlpha(image), let flat = onWhite(image) { image = flat }   // JPEG は透明を扱えないので白で埋める
+        let dest = Store.newFolder().appendingPathComponent(url.deletingPathExtension().lastPathComponent)
+            .appendingPathExtension("jpg")
+        guard let out = CGImageDestinationCreateWithURL(dest as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
+        else { return nil }
+        var options = props
+        options[kCGImageDestinationLossyCompressionQuality] = 0.9
+        CGImageDestinationAddImage(out, image, options as CFDictionary)
+        guard CGImageDestinationFinalize(out) else {
+            try? FileManager.default.removeItem(at: dest.deletingLastPathComponent())
+            return nil
+        }
+        return dest
+    }
+
+    private static func hasAlpha(_ image: CGImage) -> Bool {
+        ![.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
+    }
+
+    private static func onWhite(_ image: CGImage) -> CGImage? {
+        let space = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil } ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        ctx.setFillColor(.white)
+        ctx.fill(rect)
+        ctx.draw(image, in: rect)
+        return ctx.makeImage()
     }
 }
