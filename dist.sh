@@ -18,6 +18,7 @@ make_zip() {   # $1 = ja / en、$2 = 説明書のファイル名
     mkdir -p "$STAGE"
     ditto build/EdgeShelf.app "$STAGE/EdgeShelf.app"
     cp "dist/$2" "$STAGE/"
+    cp LICENSE "$STAGE/"   # MIT ライセンスは、配るときにライセンスの文章を添えることを求めている
     # zip コマンドは署名を壊すことがあるので ditto で固める
     rm -f "$ZIP"
     ditto -c -k --keepParent "$STAGE" "$ZIP"
