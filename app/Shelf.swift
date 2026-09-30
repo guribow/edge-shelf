@@ -10,7 +10,7 @@ final class ShelfPanel: NSPanel {
 
 final class Shelf {
     static let expandedSize = NSSize(width: 272, height: 366)   // 4 件（2 段）がスクロールせずに入る高さ
-    static let tabSize = NSSize(width: 12, height: 108)
+    static let tabSize = NSSize(width: 12, height: expandedSize.height)   // 開いた棚と同じ長さ
 
     var data: ShelfData
     var isTemp = false          // ドラッグ中に作った仮の棚。何も置かれなければ消す
@@ -52,27 +52,22 @@ final class Shelf {
         NSScreen.screens.first { $0.displayID == data.displayID } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
-    /// つまみの位置が基準。開いた棚は上端をつまみの上端にそろえ、画面に収まらないときだけ上下にずらす
+    /// つまみの中心が基準。開いた棚も中心をつまみの中心にそろえ、画面に収まらないときだけ上下にずらす
     func frame(expanded: Bool) -> NSRect {
         let f = screen.frame, vf = screen.visibleFrame
-        let tab = Self.tabSize, full = Self.expandedSize
-        var tcy = vf.minY + data.position * vf.height
-        tcy = min(max(tcy, vf.minY + tab.height / 2), vf.maxY - tab.height / 2)
-        var top = tcy + tab.height / 2
-        if expanded { top = min(max(top, vf.minY + full.height), vf.maxY) }
-        let size = expanded ? full : tab
+        let size = expanded ? Self.expandedSize : Self.tabSize
+        var cy = vf.minY + data.position * vf.height
+        cy = min(max(cy, vf.minY + size.height / 2), vf.maxY - size.height / 2)
         let x = data.edge == .right ? f.maxX - size.width : f.minX
-        return NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
+        return NSRect(x: x, y: cy - size.height / 2, width: size.width, height: size.height)
     }
 
-    /// 古い形式（開いた棚の中心）で保存された位置を、つまみの中心に直す。つまみは同じ場所に残る
+    /// 古い形式（開いた棚の中心）で保存された位置を、つまみの中心に直す。棚は同じ場所に残る
     private func migratePosition() {
         guard data.tabAnchored != true else { return }
         let vf = screen.visibleFrame, full = Self.expandedSize
-        var cy = vf.minY + data.position * vf.height
-        cy = min(max(cy, vf.minY + full.height / 2), vf.maxY - full.height / 2)
-        let tabMid = cy + full.height / 2 - Self.tabSize.height / 2
-        data.position = min(max(Double((tabMid - vf.minY) / vf.height), 0), 1)
+        let cy = min(max(vf.minY + data.position * vf.height, vf.minY + full.height / 2), vf.maxY - full.height / 2)
+        data.position = min(max(Double((cy - vf.minY) / vf.height), 0), 1)
         data.tabAnchored = true
     }
 
@@ -350,10 +345,8 @@ final class Shelf {
 
     /// 棚の縦位置を変える（見出しをドラッグしたとき）
     func moveVertically(to midY: CGFloat) {
-        let vf = screen.visibleFrame
-        let top = midY + panel.frame.height / 2          // 開いた棚の上端 ＝ つまみの上端
-        let tabMid = top - Self.tabSize.height / 2
-        data.position = min(max(Double((tabMid - vf.minY) / vf.height), 0), 1)
+        let vf = screen.visibleFrame                     // 開いた棚の中心 ＝ つまみの中心
+        data.position = min(max(Double((midY - vf.minY) / vf.height), 0), 1)
         relayout()
     }
 }
