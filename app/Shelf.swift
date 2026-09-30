@@ -22,6 +22,7 @@ final class Shelf {
     private var qlKeyObserver: NSObjectProtocol?
     private var previousApp: NSRunningApplication?   // プレビューの前に前面だったアプリ
     private(set) var expanded = false
+    private var collapseCount = 0   // 閉じるアニメーションの回数。途中で開き直したら古い完了処理を捨てる
     unowned let manager: ShelfManager
     let panel: ShelfPanel
     private let root: ShelfRootView
@@ -102,8 +103,20 @@ final class Shelf {
             panel.orderOut(nil)
             panel.orderFrontRegardless()
         }
-        root.showTab()
-        panel.setFrame(frame(expanded: false), display: true)
+        // 開くときの逆に、端へゆっくりすべり込んでから、つまみに切り替える
+        collapseCount += 1
+        let count = collapseCount
+        var end = panel.frame
+        end.origin.x += data.edge == .right ? end.width - Self.tabSize.width : -(end.width - Self.tabSize.width)
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.3
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().setFrame(end, display: true)
+        }, completionHandler: { [weak self] in
+            guard let self, !self.expanded, count == self.collapseCount else { return }   // 途中でまた開いたときは何もしない
+            self.root.showTab()
+            self.panel.setFrame(self.frame(expanded: false), display: true)
+        })
     }
 
     func redrawTab() { root.redrawTab() }
@@ -904,21 +917,62 @@ final class ExpandedView: NSView {
     }
 }
 
-/// 見出しの何もないところをドラッグすると、棚を上下に動かせる
+/// 見出しの何もないところをドラッグすると、棚を上下に動かせる。
+/// 動かせることが分かるよう、上の真ん中に短い横棒を描き、何もないところでは手のひらのカーソルにする
 final class HeaderView: NSView {
     weak var shelf: Shelf?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }   // 他のアプリを使っていても 1 回目のクリックで反応する
     private var startMouse: NSPoint = .zero
     private var startMidY: CGFloat = 0
+    private var dragging = false
+
+    override func draw(_ dirtyRect: NSRect) {
+        let bar = NSRect(x: bounds.midX - 18, y: bounds.height - 7, width: 36, height: 4)
+        NSColor.tertiaryLabelColor.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: 2, yRadius: 2).fill()
+    }
+
+    /// 棚は前面のアプリにならないことが多い。前面でなくてもカーソルを変えられるようにする
+    /// （公開されていない設定。関数が見つからないときは何もしない）
+    private static let allowCursorInBackground: Void = {
+        typealias ConnFn = @convention(c) () -> Int32
+        typealias SetFn = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+        guard let c = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_CGSDefaultConnection"),
+              let s = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGSSetConnectionProperty") else { return }
+        let conn = unsafeBitCast(c, to: ConnFn.self)()
+        _ = unsafeBitCast(s, to: SetFn.self)(conn, conn, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+    }()
+
+    // カーソルは .activeAlways の追跡で切り替える
+    override func updateTrackingAreas() {
+        _ = Self.allowCursorInBackground
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+                                       owner: self))
+    }
+    /// ボタンや「すべて」のアイコンの上では矢印のまま
+    private func updateCursor(_ event: NSEvent) {
+        if dragging { NSCursor.closedHand.set(); return }
+        let hit = superview.flatMap { hitTest($0.convert(event.locationInWindow, from: nil)) }   // hitTest は親の座標で渡す
+        (hit === self || hit is NSTextField ? NSCursor.openHand : NSCursor.arrow).set()
+    }
+    override func mouseEntered(with event: NSEvent) { updateCursor(event) }
+    override func mouseMoved(with event: NSEvent) { updateCursor(event) }
+    override func mouseExited(with event: NSEvent) { if !dragging { NSCursor.arrow.set() } }
 
     override func mouseDown(with event: NSEvent) {
         startMouse = NSEvent.mouseLocation
         startMidY = window?.frame.midY ?? 0
+        dragging = true
+        NSCursor.closedHand.set()
     }
     override func mouseDragged(with event: NSEvent) {
         shelf?.moveVertically(to: startMidY + NSEvent.mouseLocation.y - startMouse.y)
+        DispatchQueue.main.async { NSCursor.closedHand.set() }   // 窓を動かすと矢印に戻されるので、そのあとで付け直す
     }
     override func mouseUp(with event: NSEvent) {
+        dragging = false
+        DispatchQueue.main.async { self.updateCursor(event) }   // 窓を動かすと矢印に戻されるので、そのあとで付け直す
         shelf?.manager.save()
     }
 }

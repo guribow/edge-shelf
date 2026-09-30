@@ -30,6 +30,7 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
 - **Take out:** Drag an item from the shelf to where you want it. The item leaves the shelf.
 - The shelf shrinks to a thin tab when the mouse moves away. Point to the tab to open it again.
   Can't find a tab? Click the tray icon. The tabs light up.
+- To move a shelf up or down, drag the bar at the top of the shelf.
 - You can have as many shelves as you like. Drag to an empty part of the edge to make a new one.
 - Under each item's name: pixel size and file size for images, number of characters for text.
 - Right-click an item: Open, Quick Look, Show in Finder, Copy, Remove. Space opens Quick Look.

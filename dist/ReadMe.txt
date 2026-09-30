@@ -31,6 +31,7 @@ To start EdgeShelf when you log in, click the tray icon and choose "Open at Logi
 - The shelf shrinks to a thin tab when the mouse moves away.
   Point to the tab to open it again.
   Can't find a tab? Click the tray icon. The tabs light up.
+- To move a shelf up or down, drag the bar at the top of the shelf.
 
 More:
 - Under each item's name: pixel size and file size for images,
