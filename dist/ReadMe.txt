@@ -18,8 +18,8 @@ The app shows English or Japanese, following your Mac's language.
    Scroll down and click "Open Anyway", then enter your password.
 5. Double-click EdgeShelf.app again and click "Open".
 
-A tray icon appears in the menu bar. You're ready.
-To start EdgeShelf when you log in, click the tray icon and choose "Open at Login".
+The EdgeShelf icon appears in the menu bar. You're ready.
+To start EdgeShelf when you log in, click the menu bar icon and choose "Open at Login".
 
 
 == How to use ==
@@ -30,7 +30,7 @@ To start EdgeShelf when you log in, click the tray icon and choose "Open at Logi
   The item leaves the shelf.
 - The shelf shrinks to a thin tab when the mouse moves away.
   Point to the tab to open it again.
-  Can't find a tab? Click the tray icon. The tabs light up.
+  Can't find a tab? Click the menu bar icon. The tabs light up.
 - To move a shelf up or down, drag the bar at the top of the shelf.
 
 More:
@@ -44,7 +44,7 @@ More:
 - Trash button on the shelf: remove all items (original files are kept)
 - In Finder and other apps: right-click > Services (or Quick Actions) > "Send to EdgeShelf"
   (If you don't see it, log out and log in again.)
-- Tray icon menu: tab color, highlight color, open delay, and "About EdgeShelf" (version)
+- Menu bar icon menu: tab color, highlight color, open delay, and "About EdgeShelf" (version)
 
 
 == Notes ==
@@ -61,7 +61,7 @@ More:
 
 == Uninstall ==
 
-1. Tray icon > Quit
+1. Menu bar icon > Quit
 2. Move EdgeShelf.app from the Applications folder to the Trash.
 3. To delete the shelf data too: in Finder, choose Go > Go to Folder,
    enter ~/Library/Application Support/EdgeShelf and move that folder to the Trash.

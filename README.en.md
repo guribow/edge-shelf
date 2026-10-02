@@ -20,7 +20,7 @@ Download the zip from [Releases](https://github.com/guribow/edge-shelf/releases/
 3. Open System Settings > Privacy & Security, scroll down, click "Open Anyway" and enter your password.
 4. Double-click the app again and click "Open".
 
-A tray icon appears in the menu bar. After you install a new version, repeat steps 2-4.
+The EdgeShelf icon appears in the menu bar. After you install a new version, repeat steps 2-4.
 
 ## How to use
 
@@ -29,7 +29,7 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
   You can also paste with Command-V, or right-click in other apps > Services > "Send to EdgeShelf".
 - **Take out:** Drag an item from the shelf to where you want it. The item leaves the shelf.
 - The shelf shrinks to a thin tab when the mouse moves away. Point to the tab to open it again.
-  Can't find a tab? Click the tray icon. The tabs light up.
+  Can't find a tab? Click the menu bar icon. The tabs light up.
 - To move a shelf up or down, drag the bar at the top of the shelf.
 - You can have as many shelves as you like. Drag to an empty part of the edge to make a new one.
 - Under each item's name: pixel size and file size for images, number of characters for text.
@@ -38,7 +38,7 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
   The original file is kept. The date, location and other photo info are kept too.
 - Command-click or Shift-click to select more than one item.
 - The trash button removes all items (original files are kept).
-- Tray icon menu: tab color, highlight color, open delay, Open at Login, About EdgeShelf.
+- Menu bar icon menu: tab color, highlight color, open delay, Open at Login, About EdgeShelf.
 
 ## Notes
 
@@ -51,7 +51,7 @@ A tray icon appears in the menu bar. After you install a new version, repeat ste
 
 ## Uninstall
 
-1. Tray icon > Quit
+1. Menu bar icon > Quit
 2. Move EdgeShelf.app to the Trash.
 3. To delete the shelf data too, move `~/Library/Application Support/EdgeShelf` to the Trash.
 

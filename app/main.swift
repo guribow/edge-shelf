@@ -253,13 +253,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
     }
 
-    /// 棚に何か入っていれば中身の入った塗りつぶしのトレイ、空なら線だけのトレイ
+    /// 画面の枠の右の内側に棚がはり付いた形。棚に何か入っていれば棚を塗りつぶし、空なら線だけ
     private func updateIcon() {
         let full = manager.hasItems
-        let image = NSImage(systemSymbolName: full ? "tray.full.fill" : "tray",
-                            accessibilityDescription: full ? L("EdgeShelf（棚にものがあります）") : "EdgeShelf")
-        image?.isTemplate = true
+        let image = Self.menuBarIcon(full: full)
+        image.accessibilityDescription = full ? L("EdgeShelf（棚にものがあります）") : "EdgeShelf"
         statusItem.button?.image = image
+    }
+
+    static func menuBarIcon(full: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
+            NSColor.black.set()
+            let screen = NSBezierPath(roundedRect: NSRect(x: 1.5, y: 2.8, width: 15, height: 10.4), xRadius: 1.6, yRadius: 1.6)
+            let stand = NSBezierPath()
+            stand.move(to: NSPoint(x: 6.5, y: 15.6))
+            stand.line(to: NSPoint(x: 11.5, y: 15.6))
+            // 画面の右の内側にはり付いた棚（左の角だけ丸い）
+            let shelf = NSBezierPath()
+            shelf.move(to: NSPoint(x: 16.5, y: 4.9))
+            shelf.appendArc(from: NSPoint(x: 11.3, y: 4.9), to: NSPoint(x: 11.3, y: 11.1), radius: 1.3)
+            shelf.appendArc(from: NSPoint(x: 11.3, y: 11.1), to: NSPoint(x: 16.5, y: 11.1), radius: 1.3)
+            shelf.line(to: NSPoint(x: 16.5, y: 11.1))
+            for p in [screen, stand, shelf] {
+                p.lineWidth = 1.5
+                p.lineCapStyle = .round
+                p.lineJoinStyle = .round
+            }
+            screen.stroke()
+            stand.stroke()
+            if full { shelf.close(); shelf.fill() }
+            shelf.stroke()
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 
     // メニューを開くたびに作り直す
