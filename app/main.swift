@@ -52,6 +52,14 @@ final class EdgeWatcher {
         NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged]) { [weak self] _ in
             self?.ensureRunning()
         }
+        // マウスがつまみに近づいたかを見る（ほかのアプリの上でも、この棚の上でも）
+        NSEvent.addGlobalMonitorForEvents(matching: .mouseMoved) { [weak self] _ in
+            self?.manager.updateNear(NSEvent.mouseLocation)
+        }
+        NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] e in
+            self?.manager.updateNear(NSEvent.mouseLocation)
+            return e
+        }
     }
 
     func ensureRunning() {
@@ -117,6 +125,11 @@ final class ShelfManager {
     }
 
     var anyExpanded: Bool { shelves.contains(where: \.expanded) }
+
+    /// マウスが近くにある閉じた棚の、つまみを太くする
+    func updateNear(_ p: NSPoint) {
+        for s in shelves where !s.expanded { s.setNear(s.nearZone.contains(p)) }
+    }
 
     var onChange: (() -> Void)?   // 棚の中身が変わったとき（メニューバーのアイコンを変える）
 

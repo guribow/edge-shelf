@@ -11,6 +11,7 @@ final class ShelfPanel: NSPanel {
 final class Shelf {
     static let expandedWidth: CGFloat = 272
     static let tabWidth: CGFloat = 12
+    static let nearTabWidth: CGFloat = 16   // マウスが近づいたときのつまみの幅
     static let oldExpandedHeight: CGFloat = 366   // 0.4 までの固定の高さ（古い形式の位置を直すときに使う）
     static let openDuration = 0.16
     static let closeDuration = 0.3
@@ -80,7 +81,7 @@ final class Shelf {
     /// つまみの中心が基準。開いた棚も中心をつまみの中心にそろえ、画面に収まらないときだけ上下にずらす
     func frame(expanded: Bool) -> NSRect {
         let f = screen.frame, vf = screen.visibleFrame
-        let size = NSSize(width: expanded ? Self.expandedWidth : Self.tabWidth, height: height)
+        let size = NSSize(width: expanded ? Self.expandedWidth : (near ? Self.nearTabWidth : Self.tabWidth), height: height)
         var cy = vf.minY + data.position * vf.height
         cy = min(max(cy, vf.minY + size.height / 2), vf.maxY - size.height / 2)
         let x = data.edge == .right ? f.maxX - size.width : f.minX
@@ -105,6 +106,7 @@ final class Shelf {
         manager.watcher.ensureRunning()
         guard !expanded else { return }
         expanded = true
+        if near { near = false; root.setTabNear(false) }
         collapseCount += 1   // 閉じる途中なら、その完了処理を捨てる
         let from = sliding ? root.slideOffset : hiddenOffset
         root.showExpanded()
@@ -160,6 +162,29 @@ final class Shelf {
     }
 
     func redrawTab() { root.redrawTab() }
+
+    // MARK: マウスが近づいたら、つまみを少し太く、くっきりさせる（どこにあるか分かるように）
+
+    private(set) var near = false
+
+    /// 近づいたかを判定する範囲（ふだんのつまみの周り）
+    var nearZone: NSRect {
+        var r = frame(expanded: false)
+        if data.edge == .right { r.origin.x = r.maxX - Self.tabWidth }
+        r.size.width = Self.tabWidth
+        return r.insetBy(dx: -80, dy: -40)
+    }
+
+    func setNear(_ on: Bool) {
+        guard on != near, !expanded, !sliding else { return }
+        near = on
+        root.setTabNear(on)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.15
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrame(frame(expanded: false), display: true)
+        }
+    }
 
     func relayout() {
         panel.setFrame(frame(expanded: expanded), display: true)
@@ -491,6 +516,11 @@ final class ShelfRootView: NSView {
 
     func redrawTab() { tab.refresh() }
 
+    func setTabNear(_ on: Bool) {
+        tab.near = on
+        tab.refresh()
+    }
+
     // ドロップ
     private func operation(_ info: NSDraggingInfo) -> NSDragOperation {
         if let src = info.draggingSource as? DragSourceView {
@@ -682,6 +712,7 @@ final class TabView: NSView {
     private var hoverTimer: Timer?
     private var glass: NSView?          // NSGlassEffectView（macOS 26 以降）
     private let ink = TabInkView()      // 取っ手の線と項目の数
+    var near = false                    // マウスが近くにある
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -738,6 +769,14 @@ final class TabView: NSView {
     }
 
     var itemCount: Int { shelf?.data.items.count ?? 0 }
+
+    /// つまみににじませる画像：棚の先頭から見て、最初にサムネイルができている項目のもの
+    var peekImage: NSImage? {
+        for item in shelf?.data.items ?? [] {
+            if let url = item.entries.first?.fileURL, let t = ItemRowView.thumbs[url.path] { return t }
+        }
+        return nil
+    }
     var hasGlass: Bool { glass != nil }
 }
 
@@ -748,28 +787,59 @@ final class TabInkView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
+        guard let tab else { return }
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6)
         // 線と数字は、つまみの色の明るさに合わせて白か黒にする
-        var ink = NSColor.secondaryLabelColor
+        var ink = tab.near ? NSColor.labelColor : NSColor.labelColor.withAlphaComponent(0.7)
         if let c = Settings.tabColor?.usingColorSpace(.sRGB), c.alphaComponent > 0.4 {
             let lum = 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
             ink = lum < 0.6 ? NSColor.white.withAlphaComponent(0.9) : NSColor.black.withAlphaComponent(0.55)
         }
         // 設定した色は、ガラスの上に重ねる（透明度を下げるとガラスが透けて見える）
-        if tab?.hasGlass == true, let c = Settings.tabColor {
+        if tab.hasGlass, let c = Settings.tabColor {
             c.setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 6, yRadius: 6).fill()
+            shape.fill()
         }
-        // ガラスは明るい背景の上だと輪郭が見えにくいので、縁に薄い線を引く
-        if tab?.hasGlass == true {
+        // 棚の先頭の写真などを、つまみの中に薄くにじませる（何が入っている棚か、どこにあるかが分かる）
+        if let photo = tab.peekImage {
+            NSGraphicsContext.saveGraphicsState()
+            shape.addClip()
+            let s = photo.size, k = max(bounds.width / max(s.width, 1), bounds.height / max(s.height, 1))
+            let w = s.width * k, h = s.height * k
+            photo.draw(in: NSRect(x: bounds.midX - w / 2, y: bounds.midY - h / 2, width: w, height: h),
+                       from: .zero, operation: .sourceOver, fraction: 0.55)
+            NSGraphicsContext.restoreGraphicsState()
+            ink = NSColor.white.withAlphaComponent(0.95)
+        } else if tab.hasGlass {
+            // ガラスの厚み：画面の内側から光が差しこむように、内側の端を明るくする
+            let inward: CGFloat = tab.shelf?.data.edge == .left ? 180 : 0
+            NSGraphicsContext.saveGraphicsState()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 5, yRadius: 5).addClip()
+            NSGradient(starting: NSColor.white.withAlphaComponent(dark ? 0.25 : 0.7), ending: NSColor.white.withAlphaComponent(0))!
+                .draw(in: bounds.insetBy(dx: 2, dy: 2), angle: inward)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        if tab.hasGlass {
+            // 内側の縁に細い光の線、外側にくっきりした縁の線（明るい背景の上でも輪郭が分かるように）
+            let x = tab.shelf?.data.edge == .left ? bounds.maxX - 2.75 : 2.75
+            let light = NSBezierPath()
+            light.move(to: NSPoint(x: x, y: 7))
+            light.line(to: NSPoint(x: x, y: bounds.height - 7))
+            light.lineWidth = 2
+            light.lineCapStyle = .round
+            NSColor.white.withAlphaComponent(dark ? 0.5 : 1).setStroke()
+            light.stroke()
             let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 5.5, yRadius: 5.5)
             edge.lineWidth = 1
-            NSColor.tertiaryLabelColor.setStroke()
+            (dark ? NSColor.white.withAlphaComponent(tab.near ? 0.5 : 0.3)
+                  : NSColor.black.withAlphaComponent(tab.near ? 0.5 : 0.35)).setStroke()
             edge.stroke()
         }
         ink.setFill()
         let grip = NSRect(x: bounds.midX - 1, y: bounds.midY + 8, width: 2, height: 18)
         NSBezierPath(roundedRect: grip, xRadius: 1, yRadius: 1).fill()
-        let n = "\(tab?.itemCount ?? 0)" as NSString
+        let n = "\(tab.itemCount)" as NSString
         let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9, weight: .semibold),
                                                     .foregroundColor: ink]
         let sz = n.size(withAttributes: attrs)
@@ -1189,7 +1259,7 @@ final class ItemRowView: DragSourceView {
     var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
     private let label = NSTextField(wrappingLabelWithString: "")
     private let infoLabel = NSTextField(labelWithString: "")   // 縦横のピクセル数・サイズ・文字数
-    private static var thumbs: [String: NSImage] = [:]
+    static var thumbs: [String: NSImage] = [:]   // つまみのにじみにも使う
     private static var infos: [String: String] = [:]
 
     init(item: ShelfItem, shelf: Shelf) {
@@ -1319,6 +1389,7 @@ final class ItemRowView: DragSourceView {
                 DispatchQueue.main.async {
                     Self.thumbs[url.path] = img
                     self?.image = img
+                    self?.shelf?.redrawTab()
                 }
             }
         }
