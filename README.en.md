@@ -39,9 +39,10 @@ The EdgeShelf icon appears in the menu bar. If you install a new version from th
 - Command-click or Shift-click to select more than one item.
 - The trash button removes all items (original files are kept).
 - Menu bar icon menu: tab color, highlight color, open delay, Open at Login, About EdgeShelf.
+- "Tab Stripes" adds moving stripes to the tab, like a barber pole. Choose "When the Mouse Is Near" or "Always".
 - When a new version is out, a small dot appears on the menu bar icon. Choose "Update to Version …" at the top of the menu to install it and restart.
 
-## Notes
+## About files and data
 
 - Files on the shelf are links to the original files, not copies.
   Dragging a file from the shelf to Finder moves it (on the same disk), just like dragging it in Finder.

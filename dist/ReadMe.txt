@@ -45,11 +45,13 @@ More:
 - In Finder and other apps: right-click > Services (or Quick Actions) > "Send to EdgeShelf"
   (If you don't see it, log out and log in again.)
 - Menu bar icon menu: tab color, highlight color, open delay, and "About EdgeShelf" (version)
+- Menu bar icon > "Tab Stripes": moving stripes on the tab, like a barber pole
+  ("When the Mouse Is Near" or "Always")
 - When a new version is out, a small dot appears on the menu bar icon.
   Choose "Update to Version …" at the top of the menu to install it.
 
 
-== Notes ==
+== About files and data ==
 
 - Photos from the Photos app keep their original names and full size
   (edited photos are saved as edited). The first time, macOS asks
