@@ -45,6 +45,8 @@ More:
 - In Finder and other apps: right-click > Services (or Quick Actions) > "Send to EdgeShelf"
   (If you don't see it, log out and log in again.)
 - Menu bar icon menu: tab color, highlight color, open delay, and "About EdgeShelf" (version)
+- When a new version is out, a small dot appears on the menu bar icon.
+  Choose "Update to Version …" at the top of the menu to install it.
 
 
 == Notes ==
@@ -55,8 +57,10 @@ More:
 - Files on the shelf are links to the original files. They are not copies.
   Dragging a file from the shelf to Finder moves it (on the same disk),
   just like dragging it in Finder.
-- After you install a new version, repeat steps 3-5 of "Install".
-- The app sends no data anywhere.
+- If you install a new version from the zip, repeat steps 3-5 of "Install".
+  This is not needed when you use "Update" in the menu.
+- Once a day, the app asks GitHub for the latest version. It sends no other data.
+  You can turn this off with "Check for Updates Automatically" in the menu.
 
 
 == Uninstall ==

@@ -18,7 +18,7 @@ cp -R app/ja.lproj app/en.lproj "$APP/Contents/Resources/"   # 日本語・英�
 # macOS 13 以降で動く、Apple シリコンと Intel の両方に対応したユニバーサル形式にする
 MIN_OS=13.0
 for ARCH in arm64 x86_64; do
-    swiftc -O -target "$ARCH-apple-macos$MIN_OS" -o "build/EdgeShelf-$ARCH" app/Model.swift app/Shelf.swift app/main.swift
+    swiftc -O -target "$ARCH-apple-macos$MIN_OS" -o "build/EdgeShelf-$ARCH" app/Model.swift app/Shelf.swift app/Updater.swift app/main.swift
 done
 lipo -create -output "$APP/Contents/MacOS/EdgeShelf" build/EdgeShelf-arm64 build/EdgeShelf-x86_64
 sign "$APP"

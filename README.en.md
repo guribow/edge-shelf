@@ -20,7 +20,7 @@ Download the zip from [Releases](https://github.com/guribow/edge-shelf/releases/
 3. Open System Settings > Privacy & Security, scroll down, click "Open Anyway" and enter your password.
 4. Double-click the app again and click "Open".
 
-The EdgeShelf icon appears in the menu bar. After you install a new version, repeat steps 2-4.
+The EdgeShelf icon appears in the menu bar. If you install a new version from the zip, repeat steps 2-4. This is not needed when you use "Update" in the menu.
 
 ## How to use
 
@@ -39,6 +39,7 @@ The EdgeShelf icon appears in the menu bar. After you install a new version, rep
 - Command-click or Shift-click to select more than one item.
 - The trash button removes all items (original files are kept).
 - Menu bar icon menu: tab color, highlight color, open delay, Open at Login, About EdgeShelf.
+- When a new version is out, a small dot appears on the menu bar icon. Choose "Update to Version …" at the top of the menu to install it and restart.
 
 ## Notes
 
@@ -47,7 +48,7 @@ The EdgeShelf icon appears in the menu bar. After you install a new version, rep
 - Photos from the Photos app keep their original names and full size. Edited photos are saved as edited.
   The first time, macOS asks if EdgeShelf can access your photos.
 - Photos and images from web pages are saved as files in `~/Library/Application Support/EdgeShelf`.
-- Privacy: the app sends no data anywhere.
+- Privacy: Once a day, the app asks GitHub for the latest version. You can turn this off with "Check for Updates Automatically" in the menu. The app sends no other data.
 
 ## Uninstall
 

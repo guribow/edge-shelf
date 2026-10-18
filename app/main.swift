@@ -264,6 +264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         menu.autoenablesItems = false
         statusItem.menu = menu
+        Updater.shared.onChange = { [weak self] in self?.updateIcon() }
+        Updater.shared.start()
     }
 
     /// 画面の枠の右の内側に棚がはり付いた形。棚に何か入っていれば棚を塗りつぶし、空なら線だけ
@@ -271,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let full = manager.hasItems
         let image = Self.menuBarIcon(full: full)
         image.accessibilityDescription = full ? L("EdgeShelf（棚にものがあります）") : "EdgeShelf"
-        statusItem.button?.image = image
+        statusItem.button?.image = Updater.shared.badge(image)
     }
 
     static func menuBarIcon(full: Bool) -> NSImage {
@@ -309,6 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        Updater.shared.topMenuItems().forEach(menu.addItem)
         menu.addItem(MenuAction(L("EdgeShelf について")) { [weak self] in self?.showAbout() })
         menu.addItem(.separator())
         let shelves = manager.shelves.filter { !$0.data.items.isEmpty }
@@ -342,6 +345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
+        Updater.shared.settingsMenuItems().forEach(menu.addItem)
         menu.addItem(NSMenuItem(title: L("終了"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
     }
 
