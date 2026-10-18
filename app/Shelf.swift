@@ -836,14 +836,22 @@ final class TabInkView: NSView {
                   : NSColor.black.withAlphaComponent(tab.near ? 0.5 : 0.35)).setStroke()
             edge.stroke()
         }
+        // 取っ手の線と数字は、写真の上などでも見えるよう、反対の明るさの色で縁取りする
+        let inkLum = ink.usingColorSpace(.sRGB).map { 0.299 * $0.redComponent + 0.587 * $0.greenComponent + 0.114 * $0.blueComponent } ?? 0
+        let outline = inkLum > 0.5 ? NSColor.black.withAlphaComponent(0.6) : NSColor.white.withAlphaComponent(0.9)
+        let grip = NSBezierPath(roundedRect: NSRect(x: bounds.midX - 1, y: bounds.midY + 8, width: 2, height: 18), xRadius: 1, yRadius: 1)
+        grip.lineWidth = 1.5
+        outline.setStroke()
+        grip.stroke()
         ink.setFill()
-        let grip = NSRect(x: bounds.midX - 1, y: bounds.midY + 8, width: 2, height: 18)
-        NSBezierPath(roundedRect: grip, xRadius: 1, yRadius: 1).fill()
+        grip.fill()
         let n = "\(tab.itemCount)" as NSString
-        let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 9, weight: .semibold),
-                                                    .foregroundColor: ink]
-        let sz = n.size(withAttributes: attrs)
-        n.draw(at: NSPoint(x: bounds.midX - sz.width / 2, y: bounds.midY - 18), withAttributes: attrs)
+        let font = NSFont.systemFont(ofSize: 9, weight: .bold)
+        let sz = n.size(withAttributes: [.font: font])
+        let at = NSPoint(x: bounds.midX - sz.width / 2, y: bounds.midY - 18)
+        // 縁取りを先に太めに描き、その上に文字を重ねる（文字の形がやせないように）
+        n.draw(at: at, withAttributes: [.font: font, .strokeColor: outline, .strokeWidth: 30])   // strokeWidth は文字の大きさに対する %（30 で約 2.7pt）
+        n.draw(at: at, withAttributes: [.font: font, .foregroundColor: ink])
     }
 }
 
