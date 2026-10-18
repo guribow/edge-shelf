@@ -9,8 +9,11 @@ final class ShelfPanel: NSPanel {
 }
 
 final class Shelf {
-    static let expandedSize = NSSize(width: 272, height: 366)   // 4 件（2 段）がスクロールせずに入る高さ
-    static let tabSize = NSSize(width: 12, height: expandedSize.height)   // 開いた棚と同じ長さ
+    static let expandedWidth: CGFloat = 272
+    static let tabWidth: CGFloat = 12
+    static let oldExpandedHeight: CGFloat = 366   // 0.4 までの固定の高さ（古い形式の位置を直すときに使う）
+    static let openDuration = 0.16
+    static let closeDuration = 0.3
 
     var data: ShelfData
     var isTemp = false          // ドラッグ中に作った仮の棚。何も置かれなければ消す
@@ -44,6 +47,8 @@ final class Shelf {
         root.shelf = self
         panel.contentView = root
         migratePosition()
+        root.prepare()
+        height = root.preferredHeight()
         root.showTab()
         panel.setFrame(frame(expanded: false), display: false)
         panel.orderFrontRegardless()
@@ -53,10 +58,29 @@ final class Shelf {
         NSScreen.screens.first { $0.displayID == data.displayID } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
+    /// 棚とつまみの高さ。中身に合わせて 1 段分から 2 段分まで（それより多いとスクロール）
+    private(set) var height: CGFloat = 0
+
+    /// 中身が変わったとき、高さを合わせる（開いているときはなめらかに伸び縮みする）
+    private func updateHeight() {
+        let h = root.preferredHeight()
+        guard h != height else { return }
+        height = h
+        if expanded, !sliding {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.15
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().setFrame(frame(expanded: true), display: true)
+            }
+        } else if !sliding {
+            panel.setFrame(frame(expanded: expanded), display: true)
+        }
+    }
+
     /// つまみの中心が基準。開いた棚も中心をつまみの中心にそろえ、画面に収まらないときだけ上下にずらす
     func frame(expanded: Bool) -> NSRect {
         let f = screen.frame, vf = screen.visibleFrame
-        let size = expanded ? Self.expandedSize : Self.tabSize
+        let size = NSSize(width: expanded ? Self.expandedWidth : Self.tabWidth, height: height)
         var cy = vf.minY + data.position * vf.height
         cy = min(max(cy, vf.minY + size.height / 2), vf.maxY - size.height / 2)
         let x = data.edge == .right ? f.maxX - size.width : f.minX
@@ -66,27 +90,27 @@ final class Shelf {
     /// 古い形式（開いた棚の中心）で保存された位置を、つまみの中心に直す。棚は同じ場所に残る
     private func migratePosition() {
         guard data.tabAnchored != true else { return }
-        let vf = screen.visibleFrame, full = Self.expandedSize
-        let cy = min(max(vf.minY + data.position * vf.height, vf.minY + full.height / 2), vf.maxY - full.height / 2)
+        let vf = screen.visibleFrame, full = Self.oldExpandedHeight
+        let cy = min(max(vf.minY + data.position * vf.height, vf.minY + full / 2), vf.maxY - full / 2)
         data.position = min(max(Double((cy - vf.minY) / vf.height), 0), 1)
         data.tabAnchored = true
     }
 
-    /// 端から棚がすべり出る
+    /// 端から棚がすべり出る。
+    /// ウインドウは先に開いた大きさにしておき、中身だけを Core Animation で動かす
+    /// （ウインドウの位置を 1 コマずつ動かすと、ほかの処理と重なったときにコマが抜ける）
     func expand(hold: TimeInterval = 0) {
         setGlow(false)
         lastInside = Date().addingTimeInterval(hold)
         manager.watcher.ensureRunning()
         guard !expanded else { return }
         expanded = true
-        let target = frame(expanded: true)
-        var start = target
-        start.origin.x += data.edge == .right ? target.width - Self.tabSize.width : -(target.width - Self.tabSize.width)
+        collapseCount += 1   // 閉じる途中なら、その完了処理を捨てる
+        let from = sliding ? root.slideOffset : hiddenOffset
         root.showExpanded()
-        panel.setFrame(start, display: false)
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.16
-            panel.animator().setFrame(target, display: true)
+        panel.setFrame(frame(expanded: true), display: true)
+        slide(from: from, to: 0, duration: Self.openDuration, timing: .easeOut) { [weak self] in
+            self?.root.refreshIfStale()   // 閉じているあいだに元のファイルが動かされたときの表示を直す
         }
     }
 
@@ -99,24 +123,40 @@ final class Shelf {
         anchor = nil
         focus = nil
         if data.items.isEmpty { manager.remove(self); return }
-        if panel.isKeyWindow {   // キーボードの入力先を元のアプリへ返す
-            panel.orderOut(nil)
-            panel.orderFrontRegardless()
-        }
+        root.updateSelection()
         // 開くときの逆に、端へゆっくりすべり込んでから、つまみに切り替える
         collapseCount += 1
         let count = collapseCount
-        var end = panel.frame
-        end.origin.x += data.edge == .right ? end.width - Self.tabSize.width : -(end.width - Self.tabSize.width)
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.3
-            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().setFrame(end, display: true)
-        }, completionHandler: { [weak self] in
+        slide(from: sliding ? root.slideOffset : 0, to: hiddenOffset, duration: Self.closeDuration, timing: .easeIn) { [weak self] in
             guard let self, !self.expanded, count == self.collapseCount else { return }   // 途中でまた開いたときは何もしない
             self.root.showTab()
             self.panel.setFrame(self.frame(expanded: false), display: true)
-        })
+            // キーボードの入力先を元のアプリへ返す。ウインドウを出し直すと描き直しで動きが止まるので、すべり込んでから行う
+            if self.panel.isKeyWindow {
+                self.panel.orderOut(nil)
+                self.panel.orderFrontRegardless()
+            }
+        }
+    }
+
+    /// 中身がつまみの位置まで引っ込んだときのずれ（右の棚なら右へ）
+    private var hiddenOffset: CGFloat {
+        let d = Self.expandedWidth - Self.tabWidth
+        return data.edge == .right ? d : -d
+    }
+
+    private var sliding = false
+
+    private func slide(from: CGFloat, to: CGFloat, duration: Double, timing: CAMediaTimingFunctionName,
+                       done: @escaping () -> Void) {
+        sliding = true
+        root.slide(from: from, to: to, duration: duration, timing: timing) { [weak self] in
+            guard let self else { return }
+            self.sliding = false
+            self.panel.invalidateShadow()
+            done()
+            self.updateHeight()   // 動いているあいだに中身が変わっていたら合わせる
+        }
     }
 
     func redrawTab() { root.redrawTab() }
@@ -150,6 +190,7 @@ final class Shelf {
     private func changed() {
         manager.save()
         root.reload()
+        updateHeight()
     }
 
     /// ドロップ・貼り付けを受け取る。同じドロップで後から届いたファイルは同じ項目にまとめる
@@ -386,6 +427,14 @@ final class ShelfRootView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// 中身のタイルを作っておく（つまみの長さも中身の高さで決まるため、閉じているときも要る）
+    func prepare() {
+        content.shelf = shelf
+        content.reload()
+    }
+
+    func preferredHeight() -> CGFloat { content.preferredHeight() }
+
     func showTab() {
         tab.shelf = shelf
         tab.isHidden = false
@@ -393,11 +442,44 @@ final class ShelfRootView: NSView {
         tab.refresh()
     }
 
+    /// タイルは作り直さない（中身が変わったときに reload で作り直してある）
     func showExpanded() {
-        content.shelf = shelf
         tab.isHidden = true
         content.isHidden = false
-        content.reload()
+    }
+
+    func refreshIfStale() { content.refreshIfStale() }
+
+    // MARK: すべり出し・すべり込み
+
+    private var slideID = 0
+
+    /// 今の中身の横のずれ（動いている途中なら、その時点の値）
+    var slideOffset: CGFloat {
+        (content.layer?.presentation()?.value(forKeyPath: "transform.translation.x") as? CGFloat) ?? 0
+    }
+
+    /// 中身を横に動かす。動きは Core Animation が進めるので、メインスレッドが忙しくてもコマが抜けない
+    func slide(from: CGFloat, to: CGFloat, duration: Double, timing: CAMediaTimingFunctionName,
+               done: @escaping () -> Void) {
+        guard let layer = content.layer else { done(); return }
+        slideID += 1
+        let id = slideID
+        let a = CABasicAnimation(keyPath: "transform.translation.x")
+        a.fromValue = from
+        a.toValue = to
+        a.duration = duration
+        a.timingFunction = CAMediaTimingFunction(name: timing)
+        a.fillMode = .forwards
+        a.isRemovedOnCompletion = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self, id == self.slideID else { return }   // 途中で次の動きに替わったときは何もしない
+            done()
+            layer.removeAnimation(forKey: "slide")   // done でつまみに切り替えてから外す（外すと元の位置に戻るため）
+        }
+        layer.add(a, forKey: "slide")
+        CATransaction.commit()
     }
 
     func reload() {
@@ -846,8 +928,33 @@ final class ExpandedView: NSView {
         layer?.borderWidth = highlighted ? 2 : 1
     }
 
+    /// 中身に合う棚の高さ。空か 1 段なら 1 段分、2 段以上なら 2 段分（それより多い分はスクロール）
+    func preferredHeight() -> CGFloat {
+        let pad: CGFloat = 6
+        let tileW = (Shelf.expandedWidth - pad * 2) / CGFloat(Self.columns)
+        let rows = list.subviews.compactMap { $0 as? ItemRowView }
+        var h: CGFloat = 0
+        for start in stride(from: 0, to: min(rows.count, Self.columns * 2), by: Self.columns) {
+            let line = rows[start..<min(start + Self.columns, rows.count)]
+            h += max(Self.minTileHeight, line.map { $0.neededHeight(width: tileW) }.max() ?? 0)
+        }
+        return Self.headerHeight + pad + max(h, Self.minTileHeight) + pad
+    }
+
+    private var stamp: [String] = []   // 作ったときの中身（項目と、元のファイルが見つかるか）
+
+    private func currentStamp() -> [String] {
+        shelf?.data.items.map { "\($0.id)|\($0.entries.count)|\($0.missing)" } ?? []
+    }
+
+    /// 閉じているあいだに元のファイルが動かされたり消されたりしていたら作り直す
+    func refreshIfStale() {
+        if currentStamp() != stamp { reload() }
+    }
+
     func reload() {
         guard let shelf else { return }
+        stamp = currentStamp()
         list.subviews.forEach { $0.removeFromSuperview() }
         for item in shelf.data.items {
             let row = ItemRowView(item: item, shelf: shelf)
@@ -1079,7 +1186,7 @@ class DragSourceView: NSView, NSDraggingSource {
 /// 棚の 1 項目（大きなサムネイルと、その下のキャプション）
 final class ItemRowView: DragSourceView {
     let item: ShelfItem
-    var isSelected = false { didSet { needsDisplay = true } }
+    var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
     private let label = NSTextField(wrappingLabelWithString: "")
     private let infoLabel = NSTextField(labelWithString: "")   // 縦横のピクセル数・サイズ・文字数
     private static var thumbs: [String: NSImage] = [:]
@@ -1300,5 +1407,3 @@ final class MenuAction: NSMenuItem {
     required init(coder: NSCoder) { fatalError() }
     @objc private func run() { handler() }
 }
-
-
