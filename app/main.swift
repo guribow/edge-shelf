@@ -11,6 +11,12 @@ enum Settings {
         set { UserDefaults.standard.set(newValue, forKey: "openDelayMs") }
     }
 
+    /// つまみに床屋の看板のようなしま模様を流すか：0 = なし、1 = マウスを近づけたとき、2 = いつも
+    static var stripeMode: Int {
+        get { UserDefaults.standard.integer(forKey: "stripeMode") }
+        set { UserDefaults.standard.set(newValue, forKey: "stripeMode") }
+    }
+
     /// つまみの色。nil なら標準（ウインドウの背景色）
     static var tabColor: NSColor? {
         get { color("tabColor") }
@@ -334,6 +340,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(delayMenu())
         menu.addItem(MenuAction(L("つまみの色…")) { [weak self] in self?.showColorPanel(.tab) })
         menu.addItem(MenuAction(L("点滅の色…")) { [weak self] in self?.showColorPanel(.glow) })
+        menu.addItem(stripeMenu())
         if Settings.tabColor != nil || Settings.glowColor != nil {
             menu.addItem(MenuAction(L("色を標準に戻す")) { [weak self] in
                 Settings.tabColor = nil
@@ -410,6 +417,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// 端で開くまでの時間（ms）
+    private func stripeMenu() -> NSMenuItem {
+        let item = NSMenuItem(title: L("つまみのしま模様"), action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        for (mode, title) in [(0, L("なし")), (1, L("マウスを近づけたとき")), (2, L("いつも"))] {
+            let i = MenuAction(title) { [weak self] in
+                Settings.stripeMode = mode
+                self?.manager.shelves.forEach { $0.redrawTab() }
+            }
+            i.state = Settings.stripeMode == mode ? .on : .off
+            sub.addItem(i)
+        }
+        item.submenu = sub
+        return item
+    }
+
     private func delayMenu() -> NSMenuItem {
         let cur = Settings.openDelayMs
         let item = NSMenuItem(title: String(format: L("端で開くまでの時間：%d ms"), cur), action: nil, keyEquivalent: "")

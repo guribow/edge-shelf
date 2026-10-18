@@ -66,3 +66,9 @@
 "ダウンロードしたアプリの署名が壊れています。" = "The downloaded app's signature is broken.";
 "アップデートできませんでした" = "Couldn't update";
 "リリースのページを開きます。手動で入れ替えてください。" = "The release page will open. Please install it yourself.";
+
+/* つまみのしま模様 */
+"つまみのしま模様" = "Tab Stripes";
+"なし" = "Off";
+"マウスを近づけたとき" = "When the Mouse Is Near";
+"いつも" = "Always";

@@ -470,6 +470,7 @@ final class ShelfRootView: NSView {
     /// タイルは作り直さない（中身が変わったときに reload で作り直してある）
     func showExpanded() {
         tab.isHidden = true
+        tab.refresh()   // しまの動きを止める
         content.isHidden = false
     }
 
@@ -712,6 +713,9 @@ final class TabView: NSView {
     private var hoverTimer: Timer?
     private var glass: NSView?          // NSGlassEffectView（macOS 26 以降）
     private let ink = TabInkView()      // 取っ手の線と項目の数
+    private let stripeBox = NSView()    // 床屋の看板のようなしま模様（動きは Core Animation に任せる）
+    private let stripes = CALayer()
+    private static let stripePeriod: CGFloat = 16
     var near = false                    // マウスが近くにある
 
     override init(frame: NSRect) {
@@ -724,10 +728,73 @@ final class TabView: NSView {
             addSubview(g)
             glass = g
         }
+        stripeBox.frame = bounds.insetBy(dx: 1, dy: 1)
+        stripeBox.autoresizingMask = [.width, .height]
+        stripeBox.wantsLayer = true
+        stripeBox.layer?.cornerRadius = 6
+        stripeBox.layer?.masksToBounds = true
+        stripeBox.layer?.addSublayer(stripes)
+        stripeBox.isHidden = true
+        addSubview(stripeBox)
         ink.tab = self
         ink.frame = bounds
         ink.autoresizingMask = [.width, .height]
         addSubview(ink)
+    }
+
+    // 最初は大きさ 0 で作られる（0 の四角を内側に縮めると「無い四角」になり、自動で伸び縮みしない）ので、ここで決める
+    override func layout() {
+        super.layout()
+        glass?.frame = bounds.insetBy(dx: 1, dy: 1)
+        stripeBox.frame = bounds.insetBy(dx: 1, dy: 1)
+    }
+
+    /// しまを出すか（設定と、マウスが近いか、つまみが見えているかで決まる）
+    var showsStripes: Bool {
+        !isHidden && (Settings.stripeMode == 2 || (Settings.stripeMode == 1 && near))
+    }
+
+    private func updateStripes() {
+        let on = showsStripes
+        stripeBox.isHidden = !on
+        guard on else { stripes.removeAllAnimations(); return }
+        // つまみの高さは変わるので、十分に長い模様にして、箱で切り抜く
+        let p = Self.stripePeriod
+        let size = CGSize(width: Shelf.nearTabWidth, height: 1200 + p)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stripes.frame = CGRect(x: 0, y: -p, width: size.width, height: size.height)
+        stripes.contents = Self.stripeImage(size, color: NSColor.controlAccentColor.withAlphaComponent(0.35))
+        stripes.contentsScale = window?.backingScaleFactor ?? 2
+        CATransaction.commit()
+        if stripes.animation(forKey: "pole") == nil {
+            let a = CABasicAnimation(keyPath: "position.y")
+            a.byValue = p   // 1 周期ぶん上へ動かしてくり返すと、つなぎ目なく流れて見える
+            a.duration = 1.2
+            a.repeatCount = .infinity
+            stripes.add(a, forKey: "pole")
+        }
+    }
+
+    /// 斜めのしま模様。色の帯と透明の帯を、周期 stripePeriod でくり返す
+    private static func stripeImage(_ size: CGSize, color: NSColor) -> CGImage? {
+        let scale: CGFloat = 2
+        guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.setFillColor((color.usingColorSpace(.sRGB) ?? color).cgColor)
+        let band = stripePeriod / 2, slope = size.width * 0.8
+        var y = -slope
+        while y < size.height {
+            ctx.move(to: CGPoint(x: 0, y: y))
+            ctx.addLine(to: CGPoint(x: size.width, y: y + slope))
+            ctx.addLine(to: CGPoint(x: size.width, y: y + slope + band))
+            ctx.addLine(to: CGPoint(x: 0, y: y + band))
+            ctx.fillPath()
+            y += stripePeriod
+        }
+        return ctx.makeImage()
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -736,6 +803,7 @@ final class TabView: NSView {
 
     /// 色や件数が変わったときに描き直す（閉じたままでもすぐ反映されるよう、その場で描く）
     func refresh() {
+        updateStripes()
         needsDisplay = true
         ink.needsDisplay = true
         ink.displayIfNeeded()
@@ -802,7 +870,7 @@ final class TabInkView: NSView {
             shape.fill()
         }
         // 棚の先頭の写真などを、つまみの中に薄くにじませる（何が入っている棚か、どこにあるかが分かる）
-        if let photo = tab.peekImage {
+        if !tab.showsStripes, let photo = tab.peekImage {
             NSGraphicsContext.saveGraphicsState()
             shape.addClip()
             let s = photo.size, k = max(bounds.width / max(s.width, 1), bounds.height / max(s.height, 1))
