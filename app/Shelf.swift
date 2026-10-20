@@ -4,12 +4,16 @@ import QuickLookThumbnailing
 import Quartz
 
 final class ShelfPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
+    /// キーボードの入力先になれるのは、棚が開いている間だけ。
+    /// 閉じたつまみが入力先になると、閉じるたびに入力先を返す処理（窓の出し直し）が要り、つまみが一瞬消える
+    var allowKey = false
+    override var canBecomeKey: Bool { allowKey }
     override var canBecomeMain: Bool { false }
+    // 上の端の棚をメニューバーの下へ押し下げたり、大きさを変えたりさせない
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 final class Shelf {
-    static let expandedWidth: CGFloat = 272
     static let tabWidth: CGFloat = 12
     static let nearTabWidth: CGFloat = 16   // マウスが近づいたときのつまみの幅
     static let oldExpandedHeight: CGFloat = 366   // 0.4 までの固定の高さ（古い形式の位置を直すときに使う）
@@ -43,15 +47,18 @@ final class Shelf {
         panel.isOpaque = false
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
+        panel.animationBehavior = .none   // 出し直すときにふわっと出さない（閉じたあと、つまみが出るまで空白ができる）
         panel.isReleasedWhenClosed = false
         root = ShelfRootView()
         root.shelf = self
         panel.contentView = root
         migratePosition()
         root.prepare()
-        height = root.preferredHeight()
+        size = root.preferredSize()
+        tabLength = root.tabLength()
         root.showTab()
         panel.setFrame(frame(expanded: false), display: false)
+        panel.ignoresMouseEvents = true   // 閉じたつまみのクリックは下のアプリへ通す
         panel.orderFrontRegardless()
     }
 
@@ -59,14 +66,25 @@ final class Shelf {
         NSScreen.screens.first { $0.displayID == data.displayID } ?? NSScreen.main ?? NSScreen.screens[0]
     }
 
-    /// 棚とつまみの高さ。中身に合わせて 1 段分から 2 段分まで（それより多いとスクロール）
-    private(set) var height: CGFloat = 0
+    /// 中身に合わせた、開いた棚の大きさ。少ないうちは小さく、増えると端に沿って伸びる
+    private(set) var size: NSSize = .zero
 
-    /// 中身が変わったとき、高さを合わせる（開いているときはなめらかに伸び縮みする）
-    private func updateHeight() {
-        let h = root.preferredHeight()
-        guard h != height else { return }
-        height = h
+    var horizontal: Bool { data.edge.isHorizontal }
+
+    /// 開いた棚の、端に直角な向きの大きさ（左右の棚は横幅、上下の棚は高さ）
+    private var expandedThickness: CGFloat { horizontal ? size.height : size.width }
+    /// 端に沿った向きの大きさ。つまみの長さにもなる
+    private var length: CGFloat { horizontal ? size.width : size.height }
+    /// つまみの長さ。タイルの大きさの設定に関係なく、「小」のタイルで並べたときの棚の長さにする
+    /// （件数が少ないうちは短く、端のほかのものとぶつかりにくい）
+    private var tabLength: CGFloat = 0
+
+    /// 中身が変わったとき、大きさを合わせる（開いているときはなめらかに伸び縮みする）
+    private func updateSize() {
+        let s = root.preferredSize(), t = root.tabLength()
+        guard s != size || t != tabLength else { return }
+        size = s
+        tabLength = t
         if expanded, !sliding {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.15
@@ -78,10 +96,19 @@ final class Shelf {
         }
     }
 
-    /// つまみの中心が基準。開いた棚も中心をつまみの中心にそろえ、画面に収まらないときだけ上下にずらす
+    /// つまみの中心が基準。開いた棚も中心をつまみの中心にそろえ、画面に収まらないときだけ端に沿ってずらす
     func frame(expanded: Bool) -> NSRect {
         let f = screen.frame, vf = screen.visibleFrame
-        let size = NSSize(width: expanded ? Self.expandedWidth : (near ? Self.nearTabWidth : Self.tabWidth), height: height)
+        let thick = expanded ? expandedThickness : (near && Settings.growOnNear ? Self.nearTabWidth : Self.tabWidth)
+        if horizontal {
+            // 上下の棚はメニューバーや Dock の上にも重ねて出す
+            let size = NSSize(width: expanded ? length : tabLength, height: thick)
+            var cx = vf.minX + data.position * vf.width
+            cx = min(max(cx, vf.minX + size.width / 2), vf.maxX - size.width / 2)
+            let y = data.edge == .top ? f.maxY - size.height : f.minY
+            return NSRect(x: cx - size.width / 2, y: y, width: size.width, height: size.height)
+        }
+        let size = NSSize(width: thick, height: expanded ? length : tabLength)
         var cy = vf.minY + data.position * vf.height
         cy = min(max(cy, vf.minY + size.height / 2), vf.maxY - size.height / 2)
         let x = data.edge == .right ? f.maxX - size.width : f.minX
@@ -90,7 +117,7 @@ final class Shelf {
 
     /// 古い形式（開いた棚の中心）で保存された位置を、つまみの中心に直す。棚は同じ場所に残る
     private func migratePosition() {
-        guard data.tabAnchored != true else { return }
+        guard data.tabAnchored != true, !horizontal else { return }
         let vf = screen.visibleFrame, full = Self.oldExpandedHeight
         let cy = min(max(vf.minY + data.position * vf.height, vf.minY + full / 2), vf.maxY - full / 2)
         data.position = min(max(Double((cy - vf.minY) / vf.height), 0), 1)
@@ -106,6 +133,9 @@ final class Shelf {
         manager.watcher.ensureRunning()
         guard !expanded else { return }
         expanded = true
+        stopHover()
+        panel.ignoresMouseEvents = false
+        panel.allowKey = true
         if near { near = false; root.setTabNear(false) }
         collapseCount += 1   // 閉じる途中なら、その完了処理を捨てる
         let from = sliding ? root.slideOffset : hiddenOffset
@@ -133,18 +163,20 @@ final class Shelf {
             guard let self, !self.expanded, count == self.collapseCount else { return }   // 途中でまた開いたときは何もしない
             self.root.showTab()
             self.panel.setFrame(self.frame(expanded: false), display: true)
-            // キーボードの入力先を元のアプリへ返す。ウインドウを出し直すと描き直しで動きが止まるので、すべり込んでから行う
-            if self.panel.isKeyWindow {
-                self.panel.orderOut(nil)
-                self.panel.orderFrontRegardless()
-            }
+            self.panel.ignoresMouseEvents = true
+            // 棚をクリックしてキーボードの入力先になっていたら、元のアプリへ返す。
+            // ウインドウを出し直すと描き直しで動きが止まるので、すべり込んでから行う
+            let wasKey = self.panel.isKeyWindow
+            if wasKey { self.panel.orderOut(nil) }
+            self.panel.allowKey = false
+            if wasKey { self.panel.orderFrontRegardless() }
         }
     }
 
-    /// 中身がつまみの位置まで引っ込んだときのずれ（右の棚なら右へ）
+    /// 中身がつまみの位置まで引っ込んだときのずれ（右の棚なら右へ、上の棚なら上へ）
     private var hiddenOffset: CGFloat {
-        let d = Self.expandedWidth - Self.tabWidth
-        return data.edge == .right ? d : -d
+        let d = expandedThickness - Self.tabWidth
+        return data.edge == .right || data.edge == .top ? d : -d
     }
 
     private var sliding = false
@@ -157,7 +189,7 @@ final class Shelf {
             self.sliding = false
             self.panel.invalidateShadow()
             done()
-            self.updateHeight()   // 動いているあいだに中身が変わっていたら合わせる
+            self.updateSize()   // 動いているあいだに中身が変わっていたら合わせる
         }
     }
 
@@ -170,9 +202,47 @@ final class Shelf {
     /// 近づいたかを判定する範囲（ふだんのつまみの周り）
     var nearZone: NSRect {
         var r = frame(expanded: false)
+        if horizontal {
+            if data.edge == .top { r.origin.y = r.maxY - Self.tabWidth }
+            r.size.height = Self.tabWidth
+            return r.insetBy(dx: -40, dy: -80)
+        }
         if data.edge == .right { r.origin.x = r.maxX - Self.tabWidth }
         r.size.width = Self.tabWidth
         return r.insetBy(dx: -80, dy: -40)
+    }
+
+    // MARK: つまみの上で開く。クリックは下のアプリへ通すので、マウスの位置を見て決める：
+    // ⌥ を押していればすぐ、押していなければマウスを止めて設定の時間（Settings.hoverDelayMs）待つと開く
+
+    private var hoverTimer: Timer?
+    private var lastMove = Date()
+
+    /// つまみの範囲（画面の外側へ少し広げ、端に押しつけたマウスも入るように）
+    var tabHitRect: NSRect { frame(expanded: false).insetBy(dx: -2, dy: -2) }
+
+    func pointerMoved(_ p: NSPoint) {
+        guard !expanded, !sliding, tabHitRect.contains(p) else { stopHover(); return }
+        lastMove = Date()
+        guard hoverTimer == nil else { return }
+        // ⌥ を押しただけではイベントが来ないので、つまみの上にいる間は短い間隔で見る
+        let t = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.hoverTick() }
+        RunLoop.main.add(t, forMode: .common)
+        hoverTimer = t
+        hoverTick()
+    }
+
+    private func hoverTick() {
+        guard !expanded, tabHitRect.contains(NSEvent.mouseLocation), NSEvent.pressedMouseButtons == 0 else { stopHover(); return }
+        if NSEvent.modifierFlags.contains(.option) || Date().timeIntervalSince(lastMove) * 1000 >= Double(Settings.hoverDelayMs) {
+            stopHover()
+            expand()
+        }
+    }
+
+    private func stopHover() {
+        hoverTimer?.invalidate()
+        hoverTimer = nil
     }
 
     func setNear(_ on: Bool) {
@@ -215,7 +285,13 @@ final class Shelf {
     private func changed() {
         manager.save()
         root.reload()
-        updateHeight()
+        updateSize()
+    }
+
+    /// タイルの大きさの設定を変えたとき、作り直して大きさを合わせる
+    func tileSizeChanged() {
+        root.reload()
+        updateSize()
     }
 
     /// ドロップ・貼り付けを受け取る。同じドロップで後から届いたファイルは同じ項目にまとめる
@@ -422,10 +498,11 @@ final class Shelf {
         if !urls.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(urls) }
     }
 
-    /// 棚の縦位置を変える（見出しをドラッグしたとき）
-    func moveVertically(to midY: CGFloat) {
+    /// 棚を端に沿って動かす（見出しをドラッグしたとき）。mid は棚の中心の縦位置（上下の棚は横位置）
+    func moveAlongEdge(to mid: CGFloat) {
         let vf = screen.visibleFrame                     // 開いた棚の中心 ＝ つまみの中心
-        data.position = min(max(Double((midY - vf.minY) / vf.height), 0), 1)
+        let p = horizontal ? (mid - vf.minX) / vf.width : (mid - vf.minY) / vf.height
+        data.position = min(max(Double(p), 0), 1)
         relayout()
     }
 }
@@ -450,6 +527,12 @@ final class ShelfRootView: NSView {
     }
     required init?(coder: NSCoder) { fatalError() }
 
+    // 中身は外したり付け直したりするので、伸び縮みは比率に頼らず、いつも全体に合わせる
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        super.resizeSubviews(withOldSize: oldSize)
+        if content.superview != nil { content.frame = bounds }
+    }
+
     override var acceptsFirstResponder: Bool { true }
 
     /// 中身のタイルを作っておく（つまみの長さも中身の高さで決まるため、閉じているときも要る）
@@ -458,12 +541,18 @@ final class ShelfRootView: NSView {
         content.reload()
     }
 
-    func preferredHeight() -> CGFloat { content.preferredHeight() }
+    func preferredSize() -> NSSize { content.preferredSize() }
+    func tabLength() -> CGFloat {
+        let s = content.preferredSize(tile: ExpandedView.tileSizes[min(Settings.tileIndex, 1)])   // 小か、それより小さい極小
+        return shelf?.horizontal == true ? s.width : s.height
+    }
 
+    /// 中身は外しておく。見出しの高さ（32）が窓の最小の大きさになり、上下の棚のつまみが細くならないため
     func showTab() {
         tab.shelf = shelf
         tab.isHidden = false
         content.isHidden = true
+        content.removeFromSuperview()
         tab.refresh()
     }
 
@@ -471,6 +560,10 @@ final class ShelfRootView: NSView {
     func showExpanded() {
         tab.isHidden = true
         tab.refresh()   // しまの動きを止める
+        if content.superview == nil {
+            content.frame = bounds
+            addSubview(content)
+        }
         content.isHidden = false
     }
 
@@ -480,18 +573,21 @@ final class ShelfRootView: NSView {
 
     private var slideID = 0
 
-    /// 今の中身の横のずれ（動いている途中なら、その時点の値）
+    /// 動かす向き。左右の棚は横、上下の棚は縦
+    private var slideKey: String { shelf?.horizontal == true ? "transform.translation.y" : "transform.translation.x" }
+
+    /// 今の中身のずれ（動いている途中なら、その時点の値）
     var slideOffset: CGFloat {
-        (content.layer?.presentation()?.value(forKeyPath: "transform.translation.x") as? CGFloat) ?? 0
+        (content.layer?.presentation()?.value(forKeyPath: slideKey) as? CGFloat) ?? 0
     }
 
-    /// 中身を横に動かす。動きは Core Animation が進めるので、メインスレッドが忙しくてもコマが抜けない
+    /// 中身を端に直角な向きに動かす。動きは Core Animation が進めるので、メインスレッドが忙しくてもコマが抜けない
     func slide(from: CGFloat, to: CGFloat, duration: Double, timing: CAMediaTimingFunctionName,
                done: @escaping () -> Void) {
         guard let layer = content.layer else { done(); return }
         slideID += 1
         let id = slideID
-        let a = CABasicAnimation(keyPath: "transform.translation.x")
+        let a = CABasicAnimation(keyPath: slideKey)
         a.fromValue = from
         a.toValue = to
         a.duration = duration
@@ -593,8 +689,9 @@ final class ShelfRootView: NSView {
             shelf.open(shelf.selectedItems)
         case 49:        // space
             shelf.togglePreview()
-        case 123, 124, 125, 126:  // ← → ↓ ↑（2 列に並んでいるので上下は 2 つ飛ばし）。⇧ で範囲を広げる
-            let step = [123: -1, 124: 1, 125: ExpandedView.columns, 126: -ExpandedView.columns][Int(event.keyCode)]!
+        case 123, 124, 125, 126:  // ← → ↓ ↑（上下は列の数だけ飛ばす）。⇧ で範囲を広げる
+            let c = content.columns
+            let step = [123: -1, 124: 1, 125: c, 126: -c][Int(event.keyCode)]!
             shelf.moveFocus(by: step, extend: event.modifierFlags.contains(.shift))
         default:
             super.keyDown(with: event)
@@ -705,17 +802,18 @@ final class GlowWindow: NSPanel {
     }
 }
 
-/// 縮んだときのつまみ。マウスを乗せるかクリックすると開く。
+/// 縮んだときのつまみ。クリックは下のアプリへ通し、開くかは Shelf がマウスの位置を見て決める（pointerMoved）。
 /// 背景は棚と同じガラスの素材（macOS 26 以降）。設定した色はガラスの上に重ねる
 final class TabView: NSView {
     weak var shelf: Shelf?
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }   // 他のアプリを使っていても 1 回目のクリックで反応する
-    private var hoverTimer: Timer?
     private var glass: NSView?          // NSGlassEffectView（macOS 26 以降）
     private let ink = TabInkView()      // 取っ手の線と項目の数
     private let stripeBox = NSView()    // 床屋の看板のようなしま模様（動きは Core Animation に任せる）
     private let stripes = CALayer()
     private static let stripePeriod: CGFloat = 16
+    static var defaultStripeColor: NSColor { NSColor.systemBlue.withAlphaComponent(0.35) }
+    static var defaultStripeColor2: NSColor { NSColor.white.withAlphaComponent(0.35) }
+    private var stripesHorizontal = false
     var near = false                    // マウスが近くにある
 
     override init(frame: NSRect) {
@@ -758,17 +856,21 @@ final class TabView: NSView {
         let on = showsStripes
         stripeBox.isHidden = !on
         guard on else { stripes.removeAllAnimations(); return }
-        // つまみの高さは変わるので、十分に長い模様にして、箱で切り抜く
+        // つまみの長さは変わるので、十分に長い模様にして、箱で切り抜く。上下の棚のつまみは横に流す
         let p = Self.stripePeriod
-        let size = CGSize(width: Shelf.nearTabWidth, height: 1200 + p)
+        let h = shelf?.horizontal == true
+        let size = h ? CGSize(width: 1200 + p, height: Shelf.nearTabWidth) : CGSize(width: Shelf.nearTabWidth, height: 1200 + p)
+        let key = h ? "position.x" : "position.y"
+        if stripesHorizontal != h { stripes.removeAllAnimations(); stripesHorizontal = h }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        stripes.frame = CGRect(x: 0, y: -p, width: size.width, height: size.height)
-        stripes.contents = Self.stripeImage(size, color: NSColor.controlAccentColor.withAlphaComponent(0.35))
+        stripes.frame = CGRect(origin: h ? CGPoint(x: -p, y: 0) : CGPoint(x: 0, y: -p), size: size)
+        stripes.contents = Self.stripeImage(size, horizontal: h, color: Settings.stripeColor ?? Self.defaultStripeColor,
+                                             color2: Settings.stripeColor2 ?? Self.defaultStripeColor2)
         stripes.contentsScale = window?.backingScaleFactor ?? 2
         CATransaction.commit()
         if stripes.animation(forKey: "pole") == nil {
-            let a = CABasicAnimation(keyPath: "position.y")
+            let a = CABasicAnimation(keyPath: key)
             a.byValue = p   // 1 周期ぶん上へ動かしてくり返すと、つなぎ目なく流れて見える
             a.duration = 1.2
             a.repeatCount = .infinity
@@ -777,14 +879,32 @@ final class TabView: NSView {
     }
 
     /// 斜めのしま模様。色の帯と透明の帯を、周期 stripePeriod でくり返す
-    private static func stripeImage(_ size: CGSize, color: NSColor) -> CGImage? {
+    private static func stripeImage(_ size: CGSize, horizontal: Bool, color: NSColor, color2: NSColor) -> CGImage? {
         let scale: CGFloat = 2
         guard let ctx = CGContext(data: nil, width: Int(size.width * scale), height: Int(size.height * scale),
                                   bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         ctx.scaleBy(x: scale, y: scale)
+        // 2 つ目の色で全体を塗り、その上に 1 つ目の色の帯を描く
+        ctx.setFillColor((color2.usingColorSpace(.sRGB) ?? color2).cgColor)
+        ctx.fill(CGRect(origin: .zero, size: size))
+        ctx.setBlendMode(.copy)   // 帯は下の色と混ぜず、1 つ目の色そのものにする
         ctx.setFillColor((color.usingColorSpace(.sRGB) ?? color).cgColor)
-        let band = stripePeriod / 2, slope = size.width * 0.8
+        let band = stripePeriod / 2
+        if horizontal {   // 横に長いつまみ：しまを横に並べる
+            let slope = size.height * 0.8
+            var x = -slope
+            while x < size.width {
+                ctx.move(to: CGPoint(x: x, y: 0))
+                ctx.addLine(to: CGPoint(x: x + slope, y: size.height))
+                ctx.addLine(to: CGPoint(x: x + slope + band, y: size.height))
+                ctx.addLine(to: CGPoint(x: x + band, y: 0))
+                ctx.fillPath()
+                x += stripePeriod
+            }
+            return ctx.makeImage()
+        }
+        let slope = size.width * 0.8
         var y = -slope
         while y < size.height {
             ctx.move(to: CGPoint(x: 0, y: y))
@@ -810,21 +930,6 @@ final class TabView: NSView {
         displayIfNeeded()
     }
 
-    override func updateTrackingAreas() {
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-                                       owner: self))
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        // ドラッグ中は、端で開くまでの時間の設定に従う（ここでは開かない）
-        guard NSEvent.pressedMouseButtons == 0 else { return }
-        hoverTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            self?.shelf?.expand()
-        }
-    }
-    override func mouseExited(with event: NSEvent) { hoverTimer?.invalidate() }
-    override func mouseDown(with event: NSEvent) { hoverTimer?.invalidate(); shelf?.expand() }
 
     /// ガラスが使えないとき（macOS 25 以前）は、ここで背景を塗る
     override func draw(_ dirtyRect: NSRect) {
@@ -879,9 +984,9 @@ final class TabInkView: NSView {
                        from: .zero, operation: .sourceOver, fraction: 0.55)
             NSGraphicsContext.restoreGraphicsState()
             ink = NSColor.white.withAlphaComponent(0.95)
-        } else if tab.hasGlass {
-            // ガラスの厚み：画面の内側から光が差しこむように、内側の端を明るくする
-            let inward: CGFloat = tab.shelf?.data.edge == .left ? 180 : 0
+        } else if tab.hasGlass, !tab.showsStripes {
+            // ガラスの厚み：画面の内側から光が差しこむように、内側の端を明るくする（しま模様のときは描かない）
+            let inward: CGFloat = [Edge.left: 180, .right: 0, .top: 90, .bottom: 270][tab.shelf?.data.edge ?? .right]!
             NSGraphicsContext.saveGraphicsState()
             NSBezierPath(roundedRect: bounds.insetBy(dx: 2, dy: 2), xRadius: 5, yRadius: 5).addClip()
             NSGradient(starting: NSColor.white.withAlphaComponent(dark ? 0.25 : 0.7), ending: NSColor.white.withAlphaComponent(0))!
@@ -889,15 +994,23 @@ final class TabInkView: NSView {
             NSGraphicsContext.restoreGraphicsState()
         }
         if tab.hasGlass {
-            // 内側の縁に細い光の線、外側にくっきりした縁の線（明るい背景の上でも輪郭が分かるように）
-            let x = tab.shelf?.data.edge == .left ? bounds.maxX - 2.75 : 2.75
+            // 内側の縁に細い光の線、外側にくっきりした縁の線（明るい背景の上でも輪郭が分かるように）。
+            // しま模様を出しているときは、光の線がしまを切って見えるので描かない
             let light = NSBezierPath()
-            light.move(to: NSPoint(x: x, y: 7))
-            light.line(to: NSPoint(x: x, y: bounds.height - 7))
+            switch tab.shelf?.data.edge ?? .right {
+            case .left, .right:
+                let x = tab.shelf?.data.edge == .left ? bounds.maxX - 2.75 : 2.75
+                light.move(to: NSPoint(x: x, y: 7))
+                light.line(to: NSPoint(x: x, y: bounds.height - 7))
+            case .top, .bottom:
+                let y = tab.shelf?.data.edge == .bottom ? bounds.maxY - 2.75 : 2.75
+                light.move(to: NSPoint(x: 7, y: y))
+                light.line(to: NSPoint(x: bounds.width - 7, y: y))
+            }
             light.lineWidth = 2
             light.lineCapStyle = .round
             NSColor.white.withAlphaComponent(dark ? 0.5 : 1).setStroke()
-            light.stroke()
+            if !tab.showsStripes { light.stroke() }
             let edge = NSBezierPath(roundedRect: bounds.insetBy(dx: 1.5, dy: 1.5), xRadius: 5.5, yRadius: 5.5)
             edge.lineWidth = 1
             (dark ? NSColor.white.withAlphaComponent(tab.near ? 0.5 : 0.3)
@@ -907,7 +1020,10 @@ final class TabInkView: NSView {
         // 取っ手の線と数字は、写真の上などでも見えるよう、反対の明るさの色で縁取りする
         let inkLum = ink.usingColorSpace(.sRGB).map { 0.299 * $0.redComponent + 0.587 * $0.greenComponent + 0.114 * $0.blueComponent } ?? 0
         let outline = inkLum > 0.5 ? NSColor.black.withAlphaComponent(0.6) : NSColor.white.withAlphaComponent(0.9)
-        let grip = NSBezierPath(roundedRect: NSRect(x: bounds.midX - 1, y: bounds.midY + 8, width: 2, height: 18), xRadius: 1, yRadius: 1)
+        let h = tab.shelf?.horizontal == true   // 上下の棚のつまみは横に長いので、線と数字を横に並べる
+        let gripRect = h ? NSRect(x: bounds.midX - 26, y: bounds.midY - 1, width: 18, height: 2)
+                         : NSRect(x: bounds.midX - 1, y: bounds.midY + 8, width: 2, height: 18)
+        let grip = NSBezierPath(roundedRect: gripRect, xRadius: 1, yRadius: 1)
         grip.lineWidth = 1.5
         outline.setStroke()
         grip.stroke()
@@ -916,7 +1032,8 @@ final class TabInkView: NSView {
         let n = "\(tab.itemCount)" as NSString
         let font = NSFont.systemFont(ofSize: 9, weight: .bold)
         let sz = n.size(withAttributes: [.font: font])
-        let at = NSPoint(x: bounds.midX - sz.width / 2, y: bounds.midY - 18)
+        let at = h ? NSPoint(x: bounds.midX + 2, y: bounds.midY - sz.height / 2)
+                   : NSPoint(x: bounds.midX - sz.width / 2, y: bounds.midY - 18)
         // 縁取りを先に太めに描き、その上に文字を重ねる（文字の形がやせないように）
         n.draw(at: at, withAttributes: [.font: font, .strokeColor: outline, .strokeWidth: 30])   // strokeWidth は文字の大きさに対する %（30 で約 2.7pt）
         n.draw(at: at, withAttributes: [.font: font, .foregroundColor: ink])
@@ -984,8 +1101,14 @@ final class ExpandedView: NSView {
     private let scroll = NSScrollView()
     private let list = SelectionListView()
     private let emptyLabel = NSTextField(labelWithString: L("ここにドロップ\n⌘V で貼り付け"))
-    static let columns = 2
-    static let minTileHeight: CGFloat = 150
+    /// タイルの大きさ（設定の 小・中・大）
+    static var tileSize: NSSize { tileSizes[Settings.tileIndex] }
+    // 極小・小・中・大・特大。名前を折り返す行数（ItemRowView.lineCount）が入る高さ
+    static let tileSizes = [NSSize(width: 56, height: 66), NSSize(width: 72, height: 94), NSSize(width: 100, height: 130),
+                            NSSize(width: 136, height: 172), NSSize(width: 192, height: 236)]
+    static let pad: CGFloat = 6
+    /// 今の幅に並ぶ列の数
+    var columns: Int { max(1, Int((bounds.width - Self.pad * 2 + 1) / Self.tileSize.width)) }
     static let headerHeight: CGFloat = 32
 
     override init(frame: NSRect) {
@@ -1060,10 +1183,13 @@ final class ExpandedView: NSView {
         super.layout()
         let h = Self.headerHeight
         header.frame = NSRect(x: 0, y: bounds.height - h, width: bounds.width, height: h)
-        handle.frame = NSRect(x: 8, y: 5, width: 22, height: 22)
-        countLabel.frame = NSRect(x: 36, y: 8, width: bounds.width - 100, height: 16)
-        menuButton.frame = NSRect(x: bounds.width - 32, y: 4, width: 24, height: 24)
-        clearButton.frame = NSRect(x: bounds.width - 60, y: 4, width: 24, height: 24)
+        // 1 列の細い棚でもボタンが重ならないよう詰めて置き、件数は入るときだけ出す
+        handle.frame = NSRect(x: 6, y: 5, width: 22, height: 22)
+        menuButton.frame = NSRect(x: bounds.width - 30, y: 4, width: 24, height: 24)
+        clearButton.frame = NSRect(x: bounds.width - 56, y: 4, width: 24, height: 24)
+        clearButton.isHidden = bounds.width < 84   // 極小の 1 列の棚では入らない（「…」のメニューでも空にできる）
+        countLabel.frame = NSRect(x: 32, y: 8, width: bounds.width - 92, height: 16)
+        countLabel.isHidden = countLabel.frame.width < 30
         scroll.frame = NSRect(x: 0, y: 0, width: bounds.width, height: bounds.height - h)
         emptyLabel.frame = NSRect(x: 0, y: bounds.midY - 30, width: bounds.width, height: 40)
         layoutRows()
@@ -1074,17 +1200,24 @@ final class ExpandedView: NSView {
         layer?.borderWidth = highlighted ? 2 : 1
     }
 
-    /// 中身に合う棚の高さ。空か 1 段なら 1 段分、2 段以上なら 2 段分（それより多い分はスクロール）
-    func preferredHeight() -> CGFloat {
-        let pad: CGFloat = 6
-        let tileW = (Shelf.expandedWidth - pad * 2) / CGFloat(Self.columns)
-        let rows = list.subviews.compactMap { $0 as? ItemRowView }
-        var h: CGFloat = 0
-        for start in stride(from: 0, to: min(rows.count, Self.columns * 2), by: Self.columns) {
-            let line = rows[start..<min(start + Self.columns, rows.count)]
-            h += max(Self.minTileHeight, line.map { $0.neededHeight(width: tileW) }.max() ?? 0)
+    /// 中身に合う棚の大きさ。少ないうちは小さく、増えると端に沿って伸びる（左右の棚は縦、上下の棚は横）。
+    /// 端に沿って画面の半分まで伸びたら列（段）を足し、3 列（段）を超える分はスクロール
+    func preferredSize(tile: NSSize = ExpandedView.tileSize) -> NSSize {
+        guard let shelf else { return .zero }
+        let n = shelf.data.items.count
+        let t = tile, pad = Self.pad, head = Self.headerHeight
+        let vf = shelf.screen.visibleFrame
+        var cols = 2, rows = 1   // 空の棚（ドラッグ中に出す仮の棚）は「ここにドロップ」が入る大きさ
+        if n > 0 && shelf.horizontal {
+            let most = max(1, Int((vf.width / 2 - pad * 2) / t.width))
+            rows = min(Int(ceil(Double(n) / Double(most))), 3)
+            cols = min(Int(ceil(Double(n) / Double(rows))), most)
+        } else if n > 0 {
+            let most = max(1, Int((vf.height / 2 - head - pad * 2) / t.height))
+            cols = min(Int(ceil(Double(n) / Double(most))), 3)
+            rows = min(Int(ceil(Double(n) / Double(cols))), most)
         }
-        return Self.headerHeight + pad + max(h, Self.minTileHeight) + pad
+        return NSSize(width: pad * 2 + CGFloat(cols) * t.width, height: head + pad * 2 + CGFloat(rows) * t.height)
     }
 
     private var stamp: [String] = []   // 作ったときの中身（項目と、元のファイルが見つかるか）
@@ -1127,22 +1260,16 @@ final class ExpandedView: NSView {
     }
 
     private func layoutRows() {
-        // 2 列のタイルに並べる
+        // 同じ大きさのタイルを、左上から詰めて並べる
         let w = scroll.contentSize.width
-        let pad: CGFloat = 6
-        let tileW = (w - pad * 2) / CGFloat(Self.columns)
-        // キャプションを折り返すので、段ごとに高い方へそろえる
+        let t = Self.tileSize, pad = Self.pad, cols = columns
         let rows = list.subviews.compactMap { $0 as? ItemRowView }
-        var y = pad
-        for start in stride(from: 0, to: rows.count, by: Self.columns) {
-            let line = rows[start..<min(start + Self.columns, rows.count)]
-            let h = max(Self.minTileHeight, line.map { $0.neededHeight(width: tileW) }.max() ?? 0)
-            for (j, row) in line.enumerated() {
-                row.frame = NSRect(x: pad + CGFloat(j) * tileW, y: y, width: tileW, height: h)
-            }
-            y += h
+        for (i, row) in rows.enumerated() {
+            row.frame = NSRect(x: pad + CGFloat(i % cols) * t.width, y: pad + CGFloat(i / cols) * t.height,
+                               width: t.width, height: t.height)
         }
-        list.frame = NSRect(x: 0, y: 0, width: w, height: max(y + pad, scroll.contentSize.height))
+        let lines = CGFloat((rows.count + cols - 1) / cols)
+        list.frame = NSRect(x: 0, y: 0, width: w, height: max(pad * 2 + lines * t.height, scroll.contentSize.height))
     }
 
     /// 1 クリックで棚を空にする（空になった棚は閉じる）
@@ -1170,13 +1297,13 @@ final class ExpandedView: NSView {
     }
 }
 
-/// 見出しの何もないところをドラッグすると、棚を上下に動かせる。
+/// 見出しの何もないところをドラッグすると、棚を端に沿って動かせる（左右の棚は上下、上下の棚は左右）。
 /// 動かせることが分かるよう、上の真ん中に短い横棒を描き、何もないところでは手のひらのカーソルにする
 final class HeaderView: NSView {
     weak var shelf: Shelf?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }   // 他のアプリを使っていても 1 回目のクリックで反応する
     private var startMouse: NSPoint = .zero
-    private var startMidY: CGFloat = 0
+    private var startMid: CGFloat = 0   // 棚の中心（左右の棚は縦位置、上下の棚は横位置）
     private var dragging = false
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1215,12 +1342,15 @@ final class HeaderView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         startMouse = NSEvent.mouseLocation
-        startMidY = window?.frame.midY ?? 0
+        let h = shelf?.horizontal == true
+        startMid = (h ? window?.frame.midX : window?.frame.midY) ?? 0
         dragging = true
         NSCursor.closedHand.set()
     }
     override func mouseDragged(with event: NSEvent) {
-        shelf?.moveVertically(to: startMidY + NSEvent.mouseLocation.y - startMouse.y)
+        guard let shelf else { return }
+        let m = NSEvent.mouseLocation
+        shelf.moveAlongEdge(to: startMid + (shelf.horizontal ? m.x - startMouse.x : m.y - startMouse.y))
         DispatchQueue.main.async { NSCursor.closedHand.set() }   // 窓を動かすと矢印に戻されるので、そのあとで付け直す
     }
     override func mouseUp(with event: NSEvent) {
@@ -1344,11 +1474,11 @@ final class ItemRowView: DragSourceView {
         self.shelf = shelf
         dragItems = [item]
         label.stringValue = item.title
-        label.font = .systemFont(ofSize: 11)
+        label.font = .systemFont(ofSize: Settings.tileIndex == 0 ? 10 : 11)
         label.alignment = .center
-        // 省略せず折り返して全部見せる（空白のない長いファイル名も文字単位で折り返す）。
-        // テキストのメモは 1 行目が長いこともあるので 6 行まで
-        label.maximumNumberOfLines = item.entries[0].kind == .text ? 6 : 0
+        // 名前は文字単位で折り返す（空白のない長いファイル名も）。極小 1・小 2・中 3・大と特大 4 行まで出し、
+        // 入りきらないときは最後の行を「…」で省く（全部はマウスを乗せたときの説明で見られる）
+        label.maximumNumberOfLines = Self.lineCount
         label.lineBreakMode = .byCharWrapping
         label.cell?.truncatesLastVisibleLine = true
         label.textColor = item.missing ? .tertiaryLabelColor : .labelColor
@@ -1360,10 +1490,11 @@ final class ItemRowView: DragSourceView {
         infoLabel.alignment = .center
         infoLabel.lineBreakMode = .byTruncatingMiddle
         infoLabel.maximumNumberOfLines = 2
-        infoLabel.isHidden = infoLabel.stringValue.isEmpty
+        infoLabel.isHidden = true   // タイルに入らないので、マウスを乗せたときの説明に出す
         addSubview(infoLabel)
         toolTip = item.missing ? String(format: L("見つかりません：%@"), item.entries.first?.path ?? "")
-                               : item.entries.map { $0.fileURL?.path ?? $0.text ?? "" }.joined(separator: "\n")
+                               : (item.entries.map { $0.fileURL?.path ?? $0.text ?? "" }
+                                  + (infoLabel.stringValue.isEmpty ? [] : ["", infoLabel.stringValue])).joined(separator: "\n")
         loadIcon()
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -1374,7 +1505,7 @@ final class ItemRowView: DragSourceView {
         super.layout()
         let r = iconRect()
         let infoH = infoHeight
-        label.frame = NSRect(x: 6, y: r.maxY + 6, width: bounds.width - 12, height: bounds.height - r.maxY - 10 - infoH)
+        label.frame = NSRect(x: 3, y: r.maxY + 4, width: bounds.width - 6, height: bounds.height - r.maxY - 6 - infoH)
         infoLabel.frame = NSRect(x: 6, y: label.frame.maxY, width: bounds.width - 12, height: infoH)
     }
 
@@ -1392,16 +1523,12 @@ final class ItemRowView: DragSourceView {
         return s
     }
 
-    /// 幅 width のとき、キャプションを全部表示するのに要る高さ
-    func neededHeight(width: CGFloat) -> CGFloat {
-        let labelW = width - 12
-        let h = label.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: labelW, height: 10_000)).height ?? 16
-        return 8 + Self.iconSize + 6 + ceil(h) + infoHeight + 10
-    }
-
-    static let iconSize: CGFloat = 100
+    static var iconSize: CGFloat { [32, 48, 72, 100, 160][Settings.tileIndex] }
+    static var lineCount: Int { [1, 2, 3, 4, 4][Settings.tileIndex] }
+    static let dragIconSize: CGFloat = 64
+    static let thumbSize: CGFloat = 160   // サムネイルは、いちばん大きいタイルに合わせて作っておく
     override func iconRect() -> NSRect {
-        NSRect(x: (bounds.width - Self.iconSize) / 2, y: 8, width: Self.iconSize, height: Self.iconSize)
+        NSRect(x: (bounds.width - Self.iconSize) / 2, y: 7, width: Self.iconSize, height: Self.iconSize)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1436,7 +1563,7 @@ final class ItemRowView: DragSourceView {
 
     override func dragIcon() -> NSImage? {
         guard let image else { return nil }
-        let s = image.size, k = Self.iconSize / max(s.width, s.height, 1)
+        let s = image.size, k = Self.dragIconSize / max(s.width, s.height, 1)
         let out = NSImage(size: NSSize(width: s.width * k, height: s.height * k))
         out.lockFocus()
         image.draw(in: NSRect(origin: .zero, size: out.size))
@@ -1458,7 +1585,7 @@ final class ItemRowView: DragSourceView {
             image = NSWorkspace.shared.icon(forFile: url.path)
             // 画像などは中身のサムネイルに差し替える
             let scale = NSScreen.main?.backingScaleFactor ?? 2
-            let req = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.iconSize, height: Self.iconSize),
+            let req = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.thumbSize, height: Self.thumbSize),
                                                    scale: scale, representationTypes: .thumbnail)
             QLThumbnailGenerator.shared.generateBestRepresentation(for: req) { [weak self] rep, _ in
                 guard let img = rep?.nsImage else { return }

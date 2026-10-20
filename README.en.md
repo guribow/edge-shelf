@@ -3,7 +3,7 @@
 [日本語](README.md)
 
 A shelf at the edge of your screen, in the menu bar.
-Drag files, images, text or links to the left or right edge of the screen, and a shelf slides out.
+Drag files, images, text or links to any edge of the screen, and a shelf slides out.
 Drop them there to keep them for later, or to move them between windows, tabs, full-screen apps and Spaces.
 
 - Requires macOS 13 or later (Apple silicon or Intel). On macOS 26 or later, the shelf uses Liquid Glass.
@@ -24,22 +24,24 @@ The EdgeShelf icon appears in the menu bar. If you install a new version from th
 
 ## How to use
 
-- **Add:** Drag something to the left or right edge of the screen and hold for a moment.
+- **Add:** Drag something to any edge of the screen and hold for a moment.
   When the shelf opens, move the mouse a little and drop.
   You can also paste with Command-V, or right-click in other apps > Services > "Send to EdgeShelf".
 - **Take out:** Drag an item from the shelf to where you want it. The item leaves the shelf.
-- The shelf shrinks to a thin tab when the mouse moves away. Point to the tab to open it again.
+- The shelf shrinks to a thin tab when the mouse moves away. To open it again, rest the mouse on the tab for a moment, or point to it while holding Option. Clicks go through the tab to the app below, so it doesn't get in the way of scroll bars or the menu bar.
   Can't find a tab? Click the menu bar icon. The tabs light up.
-- To move a shelf up or down, drag the bar at the top of the shelf.
+- To move a shelf along the edge, drag the bar at the top of the shelf. Shelves at the top or bottom edge are wide and short.
 - You can have as many shelves as you like. Drag to an empty part of the edge to make a new one.
-- Under each item's name: pixel size and file size for images, number of characters for text.
+- A shelf starts small and grows along the edge as you add more.
+- Hover over an item to see where it is, plus pixel size and file size for images, or number of characters for text.
 - Right-click an item: Open, Quick Look, Show in Finder, Copy, Remove. Space opens Quick Look.
 - Right-click an image > "Convert to JPEG" to replace it on the shelf with a JPEG.
   The original file is kept. The date, location and other photo info are kept too.
 - Command-click or Shift-click to select more than one item.
 - The trash button removes all items (original files are kept).
-- Menu bar icon menu: tab color, highlight color, open delay, Open at Login, About EdgeShelf.
-- "Tab Stripes" adds moving stripes to the tab, like a barber pole. Choose "When the Mouse Is Near" or "Always".
+- Menu bar icon menu: tab color, highlight color, open delays (when adding and when viewing), Widen Tab When Mouse Is Near, Open at Login, About EdgeShelf. "Reset All Settings…" puts them back to their defaults.
+- "Tab Stripes" adds moving stripes to the tab, like a barber pole. It is set to "Always" at first. You can change it to "When the Mouse Is Near" or "Off". Use "Color 1…" and "Color 2…" to change the two stripe colors and their opacity (blue and white at first).
+- "Tile Size" sets the size of items in an open shelf: Extra Small, Small, Medium, Large or Extra Large.
 - When a new version is out, a small dot appears on the menu bar icon. Choose "Update to Version …" at the top of the menu to install it and restart.
 
 ## About files and data

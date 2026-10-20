@@ -1,7 +1,7 @@
 EdgeShelf
 
 A shelf at the edge of your screen.
-Drag files, images, text or links to the left or right edge of the screen,
+Drag files, images, text or links to any edge of the screen,
 and a shelf slides out. Drop them there to keep them for later.
 
 Requires macOS 13 or later (Apple silicon or Intel).
@@ -24,18 +24,22 @@ To start EdgeShelf when you log in, click the menu bar icon and choose "Open at 
 
 == How to use ==
 
-- Add: Drag something to the left or right edge of the screen and hold for a moment.
+- Add: Drag something to any edge of the screen and hold for a moment.
   When the shelf opens, move the mouse a little and drop.
 - Take out: Drag an item from the shelf to where you want it.
   The item leaves the shelf.
 - The shelf shrinks to a thin tab when the mouse moves away.
-  Point to the tab to open it again.
+  To open it again, rest the mouse on the tab for a moment,
+  or point to it while holding Option. Clicks go through the tab
+  to the app below.
   Can't find a tab? Click the menu bar icon. The tabs light up.
-- To move a shelf up or down, drag the bar at the top of the shelf.
+- To move a shelf along the edge, drag the bar at the top of the shelf.
+  Shelves at the top or bottom edge are wide and short.
 
 More:
-- Under each item's name: pixel size and file size for images,
-  number of characters for text
+- A shelf starts small and grows along the edge as you add more.
+- Hover over an item to see pixel size and file size for images,
+  or number of characters for text
 - Right-click an item: Open, Quick Look, Show in Finder, Copy, Remove
 - Right-click an image > "Convert to JPEG" (the original file is kept)
 - Space: Quick Look
@@ -44,9 +48,11 @@ More:
 - Trash button on the shelf: remove all items (original files are kept)
 - In Finder and other apps: right-click > Services (or Quick Actions) > "Send to EdgeShelf"
   (If you don't see it, log out and log in again.)
-- Menu bar icon menu: tab color, highlight color, open delay, and "About EdgeShelf" (version)
+- Menu bar icon menu: tab color, highlight color, open delays (when adding and when viewing), "Reset All Settings…", and "About EdgeShelf" (version)
 - Menu bar icon > "Tab Stripes": moving stripes on the tab, like a barber pole
-  ("When the Mouse Is Near" or "Always")
+  ("Always" at first. Also "When the Mouse Is Near" or "Off".
+  "Color 1…" and "Color 2…" change the two stripe colors.)
+- Menu bar icon > "Tile Size": Extra Small to Extra Large items in an open shelf
 - When a new version is out, a small dot appears on the menu bar icon.
   Choose "Update to Version …" at the top of the menu to install it.
 

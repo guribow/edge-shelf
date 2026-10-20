@@ -3,7 +3,11 @@ import AppKit
 import Photos
 import UniformTypeIdentifiers
 
-enum Edge: String, Codable { case left, right }
+enum Edge: String, Codable {
+    case left, right, top, bottom
+    /// 上下の端の棚（横に長く並ぶ）
+    var isHorizontal: Bool { self == .top || self == .bottom }
+}
 
 /// 画面に出す文字列。日本語をキーにし、英語は en.lproj/Localizable.strings で訳す（Mac の言語設定で自動で切り替わる）
 func L(_ ja: String) -> String { NSLocalizedString(ja, comment: "") }
@@ -81,7 +85,7 @@ struct ShelfData: Codable {
     var id = UUID()
     var displayID: UInt32
     var edge: Edge
-    var position: Double      // つまみの中心が画面の縦のどこにあるか（0 = 下、1 = 上）
+    var position: Double      // つまみの中心が端に沿ってどこにあるか（左右の棚は縦：0 = 下、1 = 上。上下の棚は横：0 = 左、1 = 右）
     var tabAnchored: Bool? = nil   // position がつまみの中心か（nil は古い形式：開いた棚の中心）
     var items: [ShelfItem] = []
 }

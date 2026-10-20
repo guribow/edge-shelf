@@ -11,9 +11,9 @@ enum Settings {
         set { UserDefaults.standard.set(newValue, forKey: "openDelayMs") }
     }
 
-    /// つまみに床屋の看板のようなしま模様を流すか：0 = なし、1 = マウスを近づけたとき、2 = いつも
+    /// つまみに床屋の看板のようなしま模様を流すか：0 = なし、1 = マウスを近づけたとき、2 = いつも（最初は いつも）
     static var stripeMode: Int {
-        get { UserDefaults.standard.integer(forKey: "stripeMode") }
+        get { UserDefaults.standard.object(forKey: "stripeMode") as? Int ?? 2 }
         set { UserDefaults.standard.set(newValue, forKey: "stripeMode") }
     }
 
@@ -23,10 +23,48 @@ enum Settings {
         set { setColor(newValue, "tabColor") }
     }
 
+    /// つまみの上でマウスを止めてから棚が開くまでの時間（ms）。⌥ を押していればすぐ開く
+    static var hoverDelayMs: Int {
+        get { UserDefaults.standard.object(forKey: "hoverDelayMs") as? Int ?? 600 }
+        set { UserDefaults.standard.set(newValue, forKey: "hoverDelayMs") }
+    }
+
+    /// マウスが近づいたとき、つまみを少し太くするか（最初はしない）
+    static var growOnNear: Bool {
+        get { UserDefaults.standard.bool(forKey: "growOnNear") }
+        set { UserDefaults.standard.set(newValue, forKey: "growOnNear") }
+    }
+
+    /// 開いた棚のタイルの大きさ：-1 = 極小、0 = 小、1 = 中、2 = 大、3 = 特大（最初は小）
+    static var tileSizeMode: Int {
+        get { UserDefaults.standard.integer(forKey: "tileSizeMode") }
+        set { UserDefaults.standard.set(newValue, forKey: "tileSizeMode") }
+    }
+    /// 大きさの表を引く番号（0 = 極小 … 4 = 特大）
+    static var tileIndex: Int { min(max(tileSizeMode, -1), 3) + 1 }
+
+    /// しま模様の 2 つの帯の色と濃さ（不透明度）。nil なら標準（1 つ目は青、2 つ目は白）
+    static var stripeColor: NSColor? {
+        get { color("stripeColor") }
+        set { setColor(newValue, "stripeColor") }
+    }
+    static var stripeColor2: NSColor? {
+        get { color("stripeColor2") }
+        set { setColor(newValue, "stripeColor2") }
+    }
+
     /// トレイを押したときに、つまみの周りを光らせる色。nil なら標準（アクセントカラー）
     static var glowColor: NSColor? {
         get { color("glowColor") }
         set { setColor(newValue, "glowColor") }
+    }
+
+    /// 利用者が変えられる設定をすべて消して、最初の値に戻す（アップデートを最後に確かめた時刻などは残す）
+    static func resetAll() {
+        for key in ["openDelayMs", "hoverDelayMs", "growOnNear", "tileSizeMode", "stripeMode",
+                    "tabColor", "glowColor", "stripeColor", "stripeColor2", "autoCheckUpdates"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
     }
 
     private static func color(_ key: String) -> NSColor? {
@@ -79,10 +117,14 @@ final class EdgeWatcher {
         // ボタンを押したままドラッグ用の貼り付け板が書き換わった ＝ 何かをドラッグしている
         if pressed && count != baseline { dragging = true }
 
-        if dragging && pressed, let (screen, edge) = Self.edge(at: NSEvent.mouseLocation) {
+        let p = NSEvent.mouseLocation
+        // つまみはドロップを受けない（クリックを下へ通すため）ので、端の 1 点に届かなくても、つまみの上なら同じように開く
+        let onTab = dragging && pressed ? manager.shelves.first { !$0.expanded && $0.tabHitRect.contains(p) } : nil
+        if dragging && pressed, onTab != nil || Self.edge(at: p) != nil {
             if edgeSince == nil { edgeSince = Date() }
             if Date().timeIntervalSince(edgeSince!) * 1000 >= Double(Settings.openDelayMs) {
-                manager.dragReachedEdge(screen: screen, edge: edge, y: NSEvent.mouseLocation.y)
+                if let onTab { onTab.expand() }
+                else if let (screen, edge) = Self.edge(at: p) { manager.dragReachedEdge(screen: screen, edge: edge, at: p) }
             }
         } else {
             edgeSince = nil
@@ -99,15 +141,17 @@ final class EdgeWatcher {
         }
     }
 
-    /// 画面の左右の端（となりに別の画面がつながっていない側）にいるか
+    /// 画面の上下左右の端（となりに別の画面がつながっていない側）にいるか。角では左右を先にする
     static func edge(at p: NSPoint) -> (NSScreen, Edge)? {
         let screens = NSScreen.screens
         for s in screens {
             let f = s.frame
-            guard p.y >= f.minY, p.y <= f.maxY, p.x >= f.minX - 1, p.x <= f.maxX + 1 else { continue }
-            let open = { (x: CGFloat) in !screens.contains { $0 != s && $0.frame.contains(NSPoint(x: x, y: p.y)) } }
-            if p.x >= f.maxX - 2, open(f.maxX + 2) { return (s, .right) }
-            if p.x <= f.minX + 1, open(f.minX - 2) { return (s, .left) }
+            guard p.y >= f.minY - 1, p.y <= f.maxY + 1, p.x >= f.minX - 1, p.x <= f.maxX + 1 else { continue }
+            let open = { (q: NSPoint) in !screens.contains { $0 != s && $0.frame.contains(q) } }
+            if p.x >= f.maxX - 2, open(NSPoint(x: f.maxX + 2, y: p.y)) { return (s, .right) }
+            if p.x <= f.minX + 1, open(NSPoint(x: f.minX - 2, y: p.y)) { return (s, .left) }
+            if p.y >= f.maxY - 2, open(NSPoint(x: p.x, y: f.maxY + 2)) { return (s, .top) }
+            if p.y <= f.minY + 1, open(NSPoint(x: p.x, y: f.minY - 2)) { return (s, .bottom) }
         }
         return nil
     }
@@ -132,9 +176,12 @@ final class ShelfManager {
 
     var anyExpanded: Bool { shelves.contains(where: \.expanded) }
 
-    /// マウスが近くにある閉じた棚の、つまみを太くする
+    /// マウスが近くにある閉じた棚の、つまみを目立たせる。つまみの上にあれば開くかを見る
     func updateNear(_ p: NSPoint) {
-        for s in shelves where !s.expanded { s.setNear(s.nearZone.contains(p)) }
+        for s in shelves where !s.expanded {
+            s.setNear(s.nearZone.contains(p))
+            s.pointerMoved(p)
+        }
     }
 
     var onChange: (() -> Void)?   // 棚の中身が変わったとき（メニューバーのアイコンを変える）
@@ -153,26 +200,28 @@ final class ShelfManager {
     }
 
     @discardableResult
-    func newShelf(screen: NSScreen, edge: Edge, y: CGFloat) -> Shelf {
+    func newShelf(screen: NSScreen, edge: Edge, at p: NSPoint) -> Shelf {
         let vf = screen.visibleFrame
-        let pos = min(max(Double((y - vf.minY) / vf.height), 0), 1)
+        let t = edge.isHorizontal ? (p.x - vf.minX) / vf.width : (p.y - vf.minY) / vf.height
+        let pos = min(max(Double(t), 0), 1)
         let s = Shelf(data: ShelfData(displayID: screen.displayID, edge: edge, position: pos, tabAnchored: true), manager: self)
         shelves.append(s)
         return s
     }
 
     /// ドラッグが端に来たら、そこにある棚を開く。なければ仮の棚を作る
-    func dragReachedEdge(screen: NSScreen, edge: Edge, y: CGFloat) {
-        // 開いている棚は棚全体、閉じている棚はつまみ（上下に少し余裕を持たせる）の範囲で判定する
+    func dragReachedEdge(screen: NSScreen, edge: Edge, at p: NSPoint) {
+        // 開いている棚は棚全体、閉じている棚はつまみ（端に沿って少し余裕を持たせる）の範囲で判定する
         let here = shelves.first {
             guard $0.screen == screen && $0.data.edge == edge else { return false }
-            let r = $0.expanded ? $0.frame(expanded: true) : $0.frame(expanded: false).insetBy(dx: 0, dy: -30)
-            return r.minY <= y && y <= r.maxY
+            let h = edge.isHorizontal
+            let r = $0.expanded ? $0.frame(expanded: true) : $0.frame(expanded: false).insetBy(dx: h ? -30 : 0, dy: h ? 0 : -30)
+            return h ? (r.minX <= p.x && p.x <= r.maxX) : (r.minY <= p.y && p.y <= r.maxY)
         }
         if let here {
             here.expand()
         } else {
-            let s = newShelf(screen: screen, edge: edge, y: y)
+            let s = newShelf(screen: screen, edge: edge, at: p)
             s.isTemp = true
             s.expand()
         }
@@ -215,7 +264,7 @@ final class ShelfManager {
         var created = false
         if target == nil {
             let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
-            target = newShelf(screen: screen, edge: .right, y: screen.visibleFrame.midY)
+            target = newShelf(screen: screen, edge: .right, at: NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY))
             created = true
         }
         guard let shelf = target else { return false }
@@ -230,7 +279,7 @@ final class ShelfManager {
     /// クリップボードの中身で、主画面の右端に新しい棚を作る
     func pasteToNewShelf() {
         guard let screen = NSScreen.main else { return }
-        let s = newShelf(screen: screen, edge: .right, y: screen.visibleFrame.midY)
+        let s = newShelf(screen: screen, edge: .right, at: NSPoint(x: screen.visibleFrame.midX, y: screen.visibleFrame.midY))
         s.expand(hold: 3)
         if !s.accept(.general) {
             NSSound.beep()
@@ -327,7 +376,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(none)
         }
         for s in shelves {
-            let side = String(format: L(s.data.edge == .right ? "右の棚：%d 件" : "左の棚：%d 件"), s.data.items.count)
+            let name = [Edge.left: "左の棚：%d 件", .right: "右の棚：%d 件", .top: "上の棚：%d 件", .bottom: "下の棚：%d 件"][s.data.edge]!
+            let side = String(format: L(name), s.data.items.count)
             let multi = NSScreen.screens.count > 1 ? String(format: L("%@・"), s.screen.localizedName) : ""
             menu.addItem(MenuAction(multi + side) { s.expand(hold: 3) })
         }
@@ -338,22 +388,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(MenuAction(L("クリップボードを新しい棚に置く")) { [manager] in manager!.pasteToNewShelf() })
         menu.addItem(.separator())
         menu.addItem(delayMenu())
+        menu.addItem(hoverDelayMenu())
+        menu.addItem(tileSizeMenu())
         menu.addItem(MenuAction(L("つまみの色…")) { [weak self] in self?.showColorPanel(.tab) })
         menu.addItem(MenuAction(L("点滅の色…")) { [weak self] in self?.showColorPanel(.glow) })
         menu.addItem(stripeMenu())
-        if Settings.tabColor != nil || Settings.glowColor != nil {
-            menu.addItem(MenuAction(L("色を標準に戻す")) { [weak self] in
-                Settings.tabColor = nil
-                Settings.glowColor = nil
-                self?.manager.shelves.forEach { $0.redrawTab() }
-            })
+        let grow = MenuAction(L("近づくとつまみを太くする")) { [weak self] in
+            Settings.growOnNear.toggle()
+            self?.manager.shelves.forEach { $0.relayout() }
         }
+        grow.state = Settings.growOnNear ? .on : .off
+        menu.addItem(grow)
+        menu.addItem(MenuAction(L("すべての設定を標準に戻す…")) { [weak self] in self?.confirmResetSettings() })
         let login = NSMenuItem(title: L("ログイン時に起動"), action: #selector(toggleLoginItem), keyEquivalent: "")
         login.target = self
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(login)
         Updater.shared.settingsMenuItems().forEach(menu.addItem)
         menu.addItem(NSMenuItem(title: L("終了"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+    }
+
+    /// 設定を最初の状態に戻す。「ログイン時に起動」（macOS の側の設定）と、棚の中身は残す
+    private func confirmResetSettings() {
+        let alert = NSAlert()
+        alert.messageText = L("すべての設定を標準に戻しますか？")
+        alert.informativeText = L("色、しま模様、タイルの大きさ、開くまでの時間などを、最初の状態に戻します。「ログイン時に起動」と、棚に置いたものはそのままです。")
+        alert.addButton(withTitle: L("標準に戻す"))
+        alert.addButton(withTitle: L("キャンセル"))
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        Settings.resetAll()
+        manager.shelves.forEach { $0.tileSizeChanged(); $0.redrawTab() }
     }
 
     private func confirmClearAll() {
@@ -370,7 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         manager.clearAll()
     }
 
-    private enum ColorTarget { case tab, glow }
+    private enum ColorTarget { case tab, glow, stripe, stripe2 }
     private var colorTarget = ColorTarget.tab
 
     /// macOS 標準のカラーパネルで色を選ぶ。つまみの色はその場ですべてのつまみに反映する。
@@ -378,7 +443,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showColorPanel(_ target: ColorTarget) {
         colorTarget = target
         let panel = NSColorPanel.shared
-        panel.showsAlpha = target == .tab
+        panel.showsAlpha = target != .glow   // しま模様は不透明度で濃さを決める
         panel.isContinuous = true
         panel.setTarget(nil)   // 色を合わせる間に action が呼ばれないように
         switch target {
@@ -388,6 +453,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .glow:
             panel.color = Settings.glowColor ?? .controlAccentColor
             panel.title = L("点滅の色")
+        case .stripe:
+            panel.color = Settings.stripeColor ?? TabView.defaultStripeColor
+            panel.title = L("しま模様の 1 つ目の色")
+        case .stripe2:
+            panel.color = Settings.stripeColor2 ?? TabView.defaultStripeColor2
+            panel.title = L("しま模様の 2 つ目の色")
         }
         panel.setTarget(self)
         panel.setAction(#selector(colorChanged(_:)))
@@ -408,6 +479,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .glow:
             Settings.glowColor = sender.color
             manager.shelves.forEach { $0.setGlow(true) }   // 新しい色で光らせ直す
+        case .stripe:
+            Settings.stripeColor = sender.color
+            manager.shelves.forEach { $0.redrawTab() }
+        case .stripe2:
+            Settings.stripeColor2 = sender.color
+            manager.shelves.forEach { $0.redrawTab() }
         }
     }
 
@@ -416,7 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         manager.shelves.forEach { $0.setGlow(false) }
     }
 
-    /// 端で開くまでの時間（ms）
+    /// つまみのしま模様の出し方と色
     private func stripeMenu() -> NSMenuItem {
         let item = NSMenuItem(title: L("つまみのしま模様"), action: nil, keyEquivalent: "")
         let sub = NSMenu()
@@ -428,23 +505,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             i.state = Settings.stripeMode == mode ? .on : .off
             sub.addItem(i)
         }
+        sub.addItem(.separator())
+        sub.addItem(MenuAction(L("1 つ目の色…")) { [weak self] in self?.showColorPanel(.stripe) })
+        sub.addItem(MenuAction(L("2 つ目の色…")) { [weak self] in self?.showColorPanel(.stripe2) })
+        item.submenu = sub
+        return item
+    }
+
+    private func tileSizeMenu() -> NSMenuItem {
+        let item = NSMenuItem(title: L("タイルの大きさ"), action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        for (mode, title) in [(-1, L("極小")), (0, L("小")), (1, L("中")), (2, L("大")), (3, L("特大"))] {
+            let i = MenuAction(title) { [weak self] in
+                Settings.tileSizeMode = mode
+                self?.manager.shelves.forEach { $0.tileSizeChanged() }
+            }
+            i.state = Settings.tileSizeMode == mode ? .on : .off
+            sub.addItem(i)
+        }
         item.submenu = sub
         return item
     }
 
     private func delayMenu() -> NSMenuItem {
-        let cur = Settings.openDelayMs
-        let item = NSMenuItem(title: String(format: L("端で開くまでの時間：%d ms"), cur), action: nil, keyEquivalent: "")
+        msMenu(title: L("置くときに開くまでの時間：%d ms"), presets: [0, 50, 100, 150, 200, 300, 500, 800, 1000],
+               get: { Settings.openDelayMs }, set: { Settings.openDelayMs = $0 },
+               askTitle: L("置くときに開くまでの時間"),
+               askInfo: L("ドラッグが画面の端に来てから棚が開き始めるまでの時間を、ミリ秒（0〜5000）で入力してください。"))
+    }
+
+    private func hoverDelayMenu() -> NSMenuItem {
+        msMenu(title: L("見るときに開くまでの時間：%d ms"), presets: [200, 300, 400, 500, 600, 800, 1000, 1500],
+               get: { Settings.hoverDelayMs }, set: { Settings.hoverDelayMs = $0 },
+               askTitle: L("見るときに開くまでの時間"),
+               askInfo: L("つまみの上でマウスを止めてから棚が開くまでの時間を、ミリ秒（0〜5000）で入力してください。⌥ を押していれば、すぐ開きます。"))
+    }
+
+    /// ミリ秒の設定のメニュー（決まった値と、カスタムの入力）
+    private func msMenu(title: String, presets: [Int], get: @escaping () -> Int, set: @escaping (Int) -> Void,
+                        askTitle: String, askInfo: String) -> NSMenuItem {
+        let cur = get()
+        let item = NSMenuItem(title: String(format: title, cur), action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        let presets = [0, 50, 100, 150, 200, 300, 500, 800, 1000]
         for ms in presets {
-            let i = MenuAction("\(ms) ms") { Settings.openDelayMs = ms }
+            let i = MenuAction("\(ms) ms") { set(ms) }
             i.state = ms == cur ? .on : .off
             sub.addItem(i)
         }
         sub.addItem(.separator())
         let custom = MenuAction(presets.contains(cur) ? L("カスタム…") : String(format: L("カスタム…（%d ms）"), cur)) { [weak self] in
-            self?.askDelay()
+            self?.askMs(title: askTitle, info: askInfo, current: cur, set: set)
         }
         custom.state = presets.contains(cur) ? .off : .on
         sub.addItem(custom)
@@ -452,12 +562,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return item
     }
 
-    private func askDelay() {
+    private func askMs(title: String, info: String, current: Int, set: (Int) -> Void) {
         let alert = NSAlert()
-        alert.messageText = L("端で開くまでの時間")
-        alert.informativeText = L("ドラッグが画面の端に来てから棚が開き始めるまでの時間を、ミリ秒（0〜5000）で入力してください。")
+        alert.messageText = title
+        alert.informativeText = info
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
-        field.stringValue = "\(Settings.openDelayMs)"
+        field.stringValue = "\(current)"
         alert.accessoryView = field
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: L("キャンセル"))
@@ -467,7 +577,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let text = field.stringValue.trimmingCharacters(in: .whitespaces)
             .applyingTransform(.fullwidthToHalfwidth, reverse: false) ?? ""
         guard let ms = Int(text), (0...5000).contains(ms) else { NSSound.beep(); return }
-        Settings.openDelayMs = ms
+        set(ms)
     }
 
     /// macOS 標準の「このアプリについて」（アイコン・名前・バージョン・著作権は Info.plist から）
